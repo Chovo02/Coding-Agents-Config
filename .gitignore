@@ -14,4 +14,9 @@ shell-snapshots/
 paste-cache/
 **/data/
 node_modules/
+daemon/
+policy-limits.json
+ponytail-modes/
+usage-report/
+scheduled_tasks.lock
 *.bak-*

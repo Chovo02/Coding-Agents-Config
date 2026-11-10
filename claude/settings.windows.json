@@ -9,6 +9,23 @@
     "pr": ""
   },
   "model": "haiku",
+  "permissions": {
+    "deny": [
+      "Read(./.env)",
+      "Read(./.env.*)",
+      "Read(**/.env)",
+      "Read(**/secrets/**)",
+      "Read(**/*.pem)",
+      "Read(**/*.key)",
+      "Bash(rm -rf *)",
+      "Bash(git push --force*)",
+      "Bash(git push -f *)",
+      "Bash(git reset --hard*)"
+    ],
+    "ask": [
+      "Bash(git push *)"
+    ]
+  },
   "hooks": {
     "Notification": [
       {
@@ -98,6 +115,17 @@
       }
     ],
     "PreToolUse": [
+      {
+        "matcher": "Bash|Read|Grep|Glob|Edit|Write|MultiEdit|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"/c/Program Files/nodejs/node\" \"$HOME/.claude/hooks/guard.js\"",
+            "shell": "bash",
+            "timeout": 10
+          }
+        ]
+      },
       {
         "hooks": [
           {
