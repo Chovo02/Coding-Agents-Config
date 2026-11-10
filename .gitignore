@@ -1,0 +1,17 @@
+# segreti / account
+.credentials.json
+.claude.json
+settings.local.json
+# runtime
+history.jsonl
+projects/
+sessions/
+session-env/
+plugins/
+backups/
+file-history/
+shell-snapshots/
+paste-cache/
+**/data/
+node_modules/
+*.bak-*

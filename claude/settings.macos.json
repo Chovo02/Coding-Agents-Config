@@ -1,0 +1,87 @@
+{
+  "cleanupPeriodDays": 180,
+  "env": {
+    "CLAUDE_CODE_NO_FLICKER": "1"
+  },
+  "attribution": {
+    "commit": "",
+    "pr": ""
+  },
+  "model": "haiku",
+  "hooks": {
+    "Notification": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ -n \"$TERAX_TERMINAL\" ] && node \"$HOME/.claude/hooks/terax-notify.js\" attention || true",
+            "shell": "bash"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ -n \"$TERAX_TERMINAL\" ] && node \"$HOME/.claude/hooks/terax-notify.js\" finished || true",
+            "shell": "bash"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ -n \"$TERAX_TERMINAL\" ] && node \"$HOME/.claude/hooks/terax-notify.js\" working || true",
+            "shell": "bash"
+          }
+        ]
+      }
+    ]
+  },
+  "statusLine": {
+    "type": "command",
+    "command": "node \"$HOME/.claude/statusline/cockpit.js\"",
+    "refreshInterval": 2
+  },
+  "subagentStatusLine": {
+    "type": "command",
+    "command": "node \"$HOME/.claude/statusline/cockpit.js\" --subagent"
+  },
+  "enabledPlugins": {
+    "flightdeck@claude-flightdeck": false,
+    "humanizer@synced": false
+  },
+  "extraKnownMarketplaces": {
+    "claude-flightdeck": {
+      "source": {
+        "source": "github",
+        "repo": "scasella/claude-flightdeck"
+      }
+    }
+  },
+  "spinnerTipsEnabled": false,
+  "spinnerVerbs": {
+    "mode": "append",
+    "verbs": [
+      "Ragionando",
+      "Consultando il vault",
+      "Rimuginando",
+      "Mettendo ordine",
+      "Collegando i puntini"
+    ]
+  },
+  "effortLevel": "medium",
+  "modelSettings": {
+    "claude-opus-5-5": {
+      "effortLevel": "high"
+    }
+  },
+  "pluginConfigs": {},
+  "autoMemoryEnabled": false,
+  "theme": "dark"
+}

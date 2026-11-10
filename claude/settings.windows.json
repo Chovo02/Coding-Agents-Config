@@ -1,0 +1,233 @@
+{
+  "cleanupPeriodDays": 180,
+  "env": {
+    "CLAUDE_CODE_PLUGIN_DIRS": "C:\\Users\\civitamatteo\\.claude\\mods\\jev-router;C:\\Users\\civitamatteo\\.claude\\mods\\flightdeck",
+    "CLAUDE_CODE_NO_FLICKER": "1"
+  },
+  "attribution": {
+    "commit": "",
+    "pr": ""
+  },
+  "model": "haiku",
+  "hooks": {
+    "Notification": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ -n \"$TERAX_TERMINAL\" ] && \"/c/Program Files/nodejs/node\" \"$HOME/.claude/hooks/terax-notify.js\" attention || true",
+            "shell": "bash"
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"C:/Users/civitamatteo/AppData/Local/Coucou/bin/coucou-hook.exe\" Notification",
+            "shell": "bash",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ -n \"$TERAX_TERMINAL\" ] && \"/c/Program Files/nodejs/node\" \"$HOME/.claude/hooks/terax-notify.js\" finished || true",
+            "shell": "bash"
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"C:/Users/civitamatteo/AppData/Local/Coucou/bin/coucou-hook.exe\" Stop",
+            "shell": "bash",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ -n \"$TERAX_TERMINAL\" ] && \"/c/Program Files/nodejs/node\" \"$HOME/.claude/hooks/terax-notify.js\" working || true",
+            "shell": "bash"
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"C:/Users/civitamatteo/AppData/Local/Coucou/bin/coucou-hook.exe\" UserPromptSubmit",
+            "shell": "bash",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"C:/Users/civitamatteo/AppData/Local/Coucou/bin/coucou-hook.exe\" SessionStart",
+            "shell": "bash",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"C:/Users/civitamatteo/AppData/Local/Coucou/bin/coucou-hook.exe\" SessionEnd",
+            "shell": "bash",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"C:/Users/civitamatteo/AppData/Local/Coucou/bin/coucou-hook.exe\" PreToolUse",
+            "shell": "bash",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"C:/Users/civitamatteo/AppData/Local/Coucou/bin/coucou-hook.exe\" PostToolUse",
+            "shell": "bash",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PostToolUseFailure": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"C:/Users/civitamatteo/AppData/Local/Coucou/bin/coucou-hook.exe\" PostToolUseFailure",
+            "shell": "bash",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PermissionRequest": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"C:/Users/civitamatteo/AppData/Local/Coucou/bin/coucou-hook.exe\" PermissionRequest",
+            "shell": "bash",
+            "timeout": 120
+          }
+        ]
+      }
+    ],
+    "StopFailure": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"C:/Users/civitamatteo/AppData/Local/Coucou/bin/coucou-hook.exe\" StopFailure",
+            "shell": "bash",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "SubagentStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"C:/Users/civitamatteo/AppData/Local/Coucou/bin/coucou-hook.exe\" SubagentStart",
+            "shell": "bash",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"C:/Users/civitamatteo/AppData/Local/Coucou/bin/coucou-hook.exe\" SubagentStop",
+            "shell": "bash",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  },
+  "statusLine": {
+    "type": "command",
+    "command": "node C:/Users/civitamatteo/.claude/statusline/cockpit.js",
+    "refreshInterval": 2
+  },
+  "subagentStatusLine": {
+    "type": "command",
+    "command": "node C:/Users/civitamatteo/.claude/statusline/cockpit.js --subagent"
+  },
+  "enabledPlugins": {
+    "cortex@cortex-marketplace": true,
+    "flightdeck@claude-flightdeck": false,
+    "humanizer@synced": false
+  },
+  "extraKnownMarketplaces": {
+    "cortex-marketplace": {
+      "source": {
+        "source": "directory",
+        "path": "C:\\Users\\civitamatteo\\Project\\Tool\\cortex"
+      }
+    },
+    "claude-flightdeck": {
+      "source": {
+        "source": "github",
+        "repo": "scasella/claude-flightdeck"
+      }
+    }
+  },
+  "spinnerTipsEnabled": false,
+  "spinnerVerbs": {
+    "mode": "append",
+    "verbs": [
+      "Ragionando",
+      "Consultando il vault",
+      "Rimuginando",
+      "Mettendo ordine",
+      "Collegando i puntini"
+    ]
+  },
+  "effortLevel": "medium",
+  "modelSettings": {
+    "claude-opus-5-5": {
+      "effortLevel": "high"
+    }
+  },
+  "pluginConfigs": {},
+  "autoMemoryEnabled": false,
+  "theme": "dark"
+}

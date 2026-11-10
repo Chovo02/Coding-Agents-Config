@@ -1,0 +1,44 @@
+{
+  "name": "jev-router",
+  "version": "0.2.0",
+  "description": "Asks Jev (TypeSafe System One) which Claude model and effort fit each prompt: effort per turn, model pinned where the prompt cache is cold, built-in subagents off Opus",
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "timeoutMs": {
+      "title": "Timeout di Jev (ms)",
+      "description": "Oltre questo tempo il prompt parte senza routing",
+      "type": "number",
+      "default": 3000
+    },
+    "minConfidence": {
+      "title": "Confidenza minima",
+      "description": "Sotto questa soglia la risposta di Jev (modello o effort) viene ignorata",
+      "type": "number",
+      "default": 0.6
+    },
+    "upgradeConfidence": {
+      "title": "Confidenza per l'upgrade a metà sessione",
+      "description": "Un modello più capace a cache calda solo con almeno questa confidenza",
+      "type": "number",
+      "default": 0.8
+    },
+    "downgradeMaxUsd": {
+      "title": "Costo massimo di riscrittura per un downgrade (USD)",
+      "description": "Un modello più economico a cache calda solo se riscrivere il contesto costa meno di così",
+      "type": "number",
+      "default": 0.1
+    },
+    "controlRate": {
+      "title": "Quota di sessioni di controllo",
+      "description": "Frazione di sessioni in cui Jev viene interrogato ma non applicato (A/B)",
+      "type": "number",
+      "default": 0.1
+    },
+    "subagentModels": {
+      "title": "Modello dei subagent built-in",
+      "description": "JSON tipo → alias, applicato solo ai subagent built-in senza modello esplicito",
+      "type": "string",
+      "default": "{\"Explore\":\"haiku\",\"general-purpose\":\"sonnet\",\"Plan\":\"opus\"}"
+    }
+  }
+}

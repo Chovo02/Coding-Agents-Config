@@ -1,0 +1,21 @@
+{
+  "marketplaces": {
+    "claude-plugins-official": {
+      "source": "github",
+      "repo": "anthropics/claude-plugins-official"
+    },
+    "cortex-marketplace": {
+      "source": "directory",
+      "path": "C:\\Users\\civitamatteo\\Project\\Tool\\cortex"
+    },
+    "claude-flightdeck": {
+      "source": "github",
+      "repo": "scasella/claude-flightdeck"
+    }
+  },
+  "enabledPlugins": {
+    "cortex@cortex-marketplace": true,
+    "flightdeck@claude-flightdeck": false,
+    "humanizer@synced": false
+  }
+}

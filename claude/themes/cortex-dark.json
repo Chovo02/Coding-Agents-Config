@@ -1,0 +1,18 @@
+{
+  "name": "Cortex Dark",
+  "base": "dark",
+  "overrides": {
+    "claude": "#a882ff",
+    "claudeShimmer": "#cbb6ff",
+    "promptBorder": "#5b4b8a",
+    "promptBorderShimmer": "#7d6bb3",
+    "planMode": "#38bdf8",
+    "remember": "#f0abfc",
+    "success": "#4ade80",
+    "warning": "#fbbf24",
+    "error": "#f87171",
+    "composerSidebarBackground": "#16131f",
+    "rate_limit_fill": "#a882ff",
+    "rate_limit_empty": "#2a2438"
+  }
+}
