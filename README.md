@@ -18,6 +18,10 @@ Idempotenti: i file esistenti vengono spostati in `<nome>.bak-<timestamp>`. `--u
 
 **Tooling ML** (derivato da fonti MIT, attribuzioni in `THIRD-PARTY-NOTICES.md` di ogni skill): skill `python-ml-tooling`, `ml-debugging`, `pandas-polars`, `ml-experiment-hygiene`; agent `ml-reviewer`; hook `hooks/ruff-check.js` (PostToolUse, solo `ruff check` su `.py`, mai `--fix`; test: `node --test claude/hooks/ruff-check.test.js`).
 
+**Tooling generico** (stessa regola sulle attribuzioni): skill `changelog-release-notes`, `readme` (solo se richiesta), `api-security`, `docker-python`.
+
+**Mod `flightdeck`**: è un fork locale (`claude/mods/flightdeck`, differisce dall'upstream in `plugin.json`, `hooks/core.ts`, `hooks/register.tsx` e nei test) caricato in-place da `CLAUDE_CODE_PLUGIN_DIRS`; compare in `claude plugin list` come `flightdeck@inline`. La voce `flightdeck@claude-flightdeck: false` in `enabledPlugins` riguarda solo la copia upstream del marketplace e va lasciata disabilitata. Per spegnere il fork serve `"flightdeck@inline": false`.
+
 ## Cosa NON è tracciato
 Credenziali, `~/.claude.json`, history, sessioni, `projects/`, `plugins/` (cache), backup, file-history: runtime o segreti (vedi `.gitignore`).
 

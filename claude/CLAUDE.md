@@ -38,6 +38,10 @@
    Non dichiarare un "miglioramento" senza aver rieseguito la metrica.
 6. Salva le decisioni prese nel wiki del progetto Cortex.
 
+### Commit
+Solo se lo chiedo. Stile dei miei repo: conventional commit su una riga, `tipo(scope): descrizione` in inglese,
+senza corpo né righe di attribuzione; un commit per tema. Mai `push` senza richiesta esplicita.
+
 ### Primo giorno su un repo
 cwd non mappato → proponi `cortex:ingest` → poi lavoro normale.
 
