@@ -16,6 +16,8 @@ Idempotenti: i file esistenti vengono spostati in `<nome>.bak-<timestamp>`. `--u
 ## Cosa è tracciato (`claude/`)
 `CLAUDE.md`, `settings.<os>.json` (symlinkato come `settings.json`), `agents/`, `hooks/`, `statusline/`, `themes/`, `chrome/` (solo Windows), `skills/` propri (uno per uno: `skills/synced` resta locale), `plugins.json` (marketplace + plugin abilitati, installabili con `--plugins`), `mods/` (jev-router + flightdeck fork: versionati direttamente qui, nessun repo annidato; `data/` esclusa).
 
+**Tooling ML** (derivato da fonti MIT, attribuzioni in `THIRD-PARTY-NOTICES.md` di ogni skill): skill `python-ml-tooling`, `ml-debugging`, `pandas-polars`, `ml-experiment-hygiene`; agent `ml-reviewer`; hook `hooks/ruff-check.js` (PostToolUse, solo `ruff check` su `.py`, mai `--fix`; test: `node --test claude/hooks/ruff-check.test.js`).
+
 ## Cosa NON è tracciato
 Credenziali, `~/.claude.json`, history, sessioni, `projects/`, `plugins/` (cache), backup, file-history: runtime o segreti (vedi `.gitignore`).
 

@@ -34,6 +34,8 @@
 3. `codebase-design` se tocchi interfacce di modulo.
 4. Implementazione.
 5. `/code-review` livello **low** se il diff tocca più file o logica non banale: riporta i finding, non applicarli.
+   Se il diff tocca training, split dei dati o valutazione, usa anche l'agent `ml-reviewer` (stessa regola).
+   Non dichiarare un "miglioramento" senza aver rieseguito la metrica.
 6. Salva le decisioni prese nel wiki del progetto Cortex.
 
 ### Primo giorno su un repo
