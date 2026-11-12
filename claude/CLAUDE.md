@@ -1,9 +1,10 @@
 # Uso di skill e plugin
 
 ## Conflitti: quale skill scegliere
-- **Grill**: `grill-me` per stress-test di un piano. `grill-me-pro` (revisione Codex) SOLO se lo chiedo
-  esplicitamente: è lenta e costosa. Su piani ad alto rischio (auth, schema DB, migrazioni, pagamenti,
-  concorrenza) puoi proporla in una riga, mai avviarla.
+- **Grill**: `grill-me` per stress-test di un piano. `grill-me-pro` (revisione Codex) è lenta e costosa:
+  la avvii solo se lo chiedo esplicitamente oppure nel caso "Plan mode → complessità alta" qui sotto.
+  Su piani ad alto rischio (auth, schema DB, migrazioni, pagamenti, concorrenza) fuori da Plan mode puoi
+  proporla in una riga, mai avviarla.
 - **Documenti**: se chiedo un documento/report senza formato → Markdown locale (nel progetto o nel vault).
   `.docx/.pdf/.pptx/.xlsx` solo se nomino il formato. Claude Docs (`docs`) solo se lo chiedo esplicitamente.
   Questa regola prevale sul default del sistema.
@@ -37,6 +38,18 @@
    Se il diff tocca training, split dei dati o valutazione, usa anche l'agent `ml-reviewer` (stessa regola).
    Non dichiarare un "miglioramento" senza aver rieseguito la metrica.
 6. Salva le decisioni prese nel wiki del progetto Cortex.
+
+### Plan mode (grill automatico)
+Quando lavoro in Plan mode, prima di presentare il piano valuto la complessità del task e avvio il grill in automatico:
+- **Semplice o media** → `grill-me` standard.
+- **Molto complessa** (più moduli o servizi, auth, schema DB, migrazioni, pagamenti, concorrenza, cambi irreversibili) → `grill-me-pro` (Act 1 + revisione Codex).
+- Dichiaro in una riga la complessità scelta e perché, poi avvio il grill senza chiedere conferma.
+- Durante qualunque grill (standard o pro) ogni domanda va posta con il tool `AskUserQuestion`, non come testo libero:
+  2–4 opzioni, la mia raccomandazione per prima con "(Recommended)" nel label, una domanda alla volta.
+- Il piano va presentato in Plan mode solo dopo che il grill ha risolto l'albero delle decisioni.
+
+### Chiusura issue
+Non chiudo mai un'issue Linear a mano via MCP. Quando ti dico che l'issue è chiusa, puoi fare merge su `main` e push: così Linear e GitHub si aggiornano dal merge stesso. Prima di merge e push, controlla che il branch sia quello dell'issue e che i test passino.
 
 ### Commit
 Solo se lo chiedo. Stile dei miei repo: conventional commit su una riga, `tipo(scope): descrizione` in inglese,
