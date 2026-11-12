@@ -52,7 +52,8 @@ Quando lavoro in Plan mode, prima di presentare il piano valuto la complessità 
 Non chiudo mai un'issue Linear a mano via MCP. Flusso per ogni issue che risolvo:
 1. Branch: uso il `gitBranchName` assegnato da Linear (es. `feature/mat-6-comportamento-durante-il-plan`).
 2. Commit: un commit per tema, con `(MAT-N)` nel titolo.
-3. PR: push del branch e `gh pr create` con `Closes MAT-N` nel corpo. Il push e l'apertura della PR solo su mia conferma.
+3. PR: push del branch e `gh pr create` con `Closes MAT-N` nel corpo. Il push e l'apertura della PR solo su mia conferma. Il corpo della PR è in italiano; titolo e commit restano in inglese.
+3b. Review: dopo `gh pr create` proponi in una riga di far rivedere la PR dal sub-agent `pr-reviewer`. Parte solo su mia conferma. I finding arrivano come bozza: li pubblico come commento sulla PR solo dopo mio ok esplicito.
 4. Merge: quando ti dico che l'issue è chiusa, `gh pr merge --merge --delete-branch`. Il merge chiude l'issue su Linear.
 Non faccio merge diretto su `main`. Prima del merge controllo che il branch sia quello dell'issue e che i test passino.
 
