@@ -221,11 +221,6 @@ export function formatRun(run: Run | null, now: number, pinned?: Sticky | null) 
   return lines.join('\n')
 }
 
-// Colour follows the confidence: green when sure, amber when borderline.
-function barTone(confidence: number) {
-  return confidence >= 0.85 ? 'success' : 'warning'
-}
-
 function today(ms: number) {
   return new Date(ms).toISOString().slice(0, 10)
 }
@@ -453,46 +448,4 @@ export const register: Register = (on, options) => {
     return alias ? next({ ...e, model: alias }) : next(e)
   })
 
-  on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
-    const current = await read($, route)
-    if (!current) return next(e)
-
-    const { Box, Text } = $.ui.resolve(e)
-    const cells = (confidence: number) => {
-      const filled = Math.round(confidence * BAR_CELLS)
-      return '█'.repeat(filled) + '░'.repeat(BAR_CELLS - filled)
-    }
-    const pct = (confidence: number) => Math.round(confidence * 100)
-    const pinned = await read($, sticky)
-
-    return (
-      <Box>
-        <Text>
-          <Text color="subtle">Jev  </Text>
-          {current.effort && current.effortConfidence !== undefined ? (
-            <Text>
-              <Text bold color="claude">effort {current.effort}</Text>
-              <Text color="subtle">  </Text>
-              <Text color={barTone(current.effortConfidence)}>{cells(current.effortConfidence)}</Text>
-              <Text color="subtle"> {pct(current.effortConfidence)}%</Text>
-            </Text>
-          ) : null}
-          {current.model && current.confidence !== undefined ? (
-            <Text>
-              <Text color="subtle">  ·  </Text>
-              <Text bold color="claude">{current.alias}</Text>
-              <Text color="subtle">  </Text>
-              <Text color={barTone(current.confidence)}>{cells(current.confidence)}</Text>
-              <Text color="subtle"> {pct(current.confidence)}%  {current.model}</Text>
-            </Text>
-          ) : pinned ? (
-            <Text color="subtle">  ·  {pinned.alias} sticky</Text>
-          ) : null}
-          {current.suggest ? (
-            <Text color="warning">  ·  suggerisce {current.suggest} (cache calda, switch +{usd(current.suggestUsd ?? 0)})</Text>
-          ) : null}
-        </Text>
-      </Box>
-    )
-  })
 }
