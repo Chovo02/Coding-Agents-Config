@@ -8,7 +8,6 @@
     "commit": "",
     "pr": ""
   },
-  "model": "haiku",
   "permissions": {
     "deny": [
       "Read(./.env)",
@@ -268,5 +267,6 @@
   },
   "pluginConfigs": {},
   "autoMemoryEnabled": false,
-  "theme": "dark"
+  "theme": "dark",
+  "model": "haiku"
 }
