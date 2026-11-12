@@ -142,27 +142,29 @@ async function askJev($: any, text: string, timeoutMs: number): Promise<Run> {
   return run
 }
 
+// Short labels, shown in the toast and in the FlightDeck panel (about 25 characters). Stored in the
+// run as `outcomeLabel` / `whyLabel`, so the panel reads them rather than keeping its own copy.
 const OUTCOME_LABEL: Record<Outcome, string> = {
   routed: 'applicato',
-  'low-confidence': 'nulla da applicare (confidenza bassa, stesso modello o sessione di controllo)',
-  'no-key': 'TYPESAFE_API_KEY non impostata: Jev non è stato chiamato',
-  timeout: 'timeout: resta il modello della sessione',
-  'http-error': 'errore nella chiamata: resta il modello della sessione',
-  'bad-response': 'risposta non valida o scelta sconosciuta: resta il modello della sessione',
+  'low-confidence': 'nessuna modifica',
+  'no-key': 'manca TYPESAFE_API_KEY',
+  timeout: 'timeout',
+  'http-error': 'errore di rete',
+  'bad-response': 'risposta non valida',
 }
 
 const WHY_LABEL: Record<string, string> = {
-  first: 'primo prompt della sessione',
+  first: 'primo prompt',
   compact: 'dopo /clear o /compact',
   cold: 'cache scaduta',
   upgrade: 'upgrade sicuro',
   'cheap-rewrite': 'riscrittura economica',
-  'cache-warm': 'cache calda, cambio troppo caro',
+  'cache-warm': 'cache calda, costo alto',
   'cache-full': 'cache piena',
-  same: 'già sul modello scelto',
+  same: 'già sul modello',
   'low-confidence': 'confidenza bassa',
-  'no-answer': 'nessuna scelta di modello',
-  control: 'sessione di controllo (A/B)',
+  'no-answer': 'nessuna risposta',
+  control: 'sessione di controllo',
   refused: '/model rifiutato',
 }
 
@@ -347,7 +349,7 @@ export const register: Register = (on, options) => {
           routed.alias = decision.alias
           routed.model = pinned.model
           routed.confidence = run.confidence
-          $.ui.toast(`Jev → ${decision.alias} (${WHY_LABEL[decision.why] ?? decision.why})`)
+          $.ui.toast(`Jev → ${decision.alias} · ${WHY_LABEL[decision.why] ?? decision.why}`)
         } else if (decision.action === 'suggest') {
           routed.suggest = decision.alias
           routed.suggestUsd = decision.estUsd
@@ -357,6 +359,8 @@ export const register: Register = (on, options) => {
       // The policy has looked at the session as it was: a /clear or /compact is used up now.
       if (usable) session.compacted = false
 
+      run.outcomeLabel = OUTCOME_LABEL[run.outcome]
+      run.whyLabel = run.decision ? WHY_LABEL[run.decision.why] ?? run.decision.why : undefined
       pendingRun = run
       pendingRoute = routed.effort || routed.model || routed.suggest ? routed : undefined
       await update($, lastRun, () => run).catch(() => undefined)

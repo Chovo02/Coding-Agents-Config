@@ -46,6 +46,9 @@ export type Run = {
   contextTokens?: number
   // Where the questions sent to Jev came from: prompts/questions.json, or the built-in fallback.
   promptSource?: 'file' | 'fallback'
+  // Short human labels, written once here so every surface (toast, FlightDeck) shows the same words.
+  outcomeLabel?: string
+  whyLabel?: string
 }
 
 // The model the main loop is pinned to. `mechanism` says how: `command` ran /model (the session's
