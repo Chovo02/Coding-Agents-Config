@@ -13,6 +13,8 @@ import {
 
 const HOUR = 60 * 60 * 1000
 const warm = (sticky: string, contextTokens: number) => ({ sticky, contextTokens, compacted: false, lastResponseAt: 0 })
+// The switch logic below is tested on large contexts: lift the cache-full gate so it does not mask them.
+const UNCAPPED = { ...DEFAULT_POLICY, cacheFullTokens: Infinity }
 
 test('the first prompt of a session sets the model, whatever the context', () => {
   const d = decideModel({ contextTokens: 0, compacted: false }, 'sonnet', 0.7, 0, DEFAULT_POLICY)
@@ -33,7 +35,7 @@ test('the same model is kept without a switch', () => {
 })
 
 test('a downgrade on a large warm context is only suggested', () => {
-  const d = decideModel(warm('opus', 150_000), 'sonnet', 0.95, 1000, DEFAULT_POLICY)
+  const d = decideModel(warm('opus', 150_000), 'sonnet', 0.95, 1000, UNCAPPED)
   expect(d).toMatchObject({ action: 'suggest', alias: 'sonnet', why: 'cache-warm' })
   // 150k tokens at Sonnet 5.5's 1h write price ($4/MTok) is $0.60.
   expect(Math.round((d as { estUsd: number }).estUsd * 100)).toBe(60)
@@ -45,8 +47,25 @@ test('a downgrade on a small context goes through', () => {
 })
 
 test('an upgrade to opus needs the higher confidence on a warm cache', () => {
-  expect(decideModel(warm('sonnet', 150_000), 'opus', 0.7, 1000, DEFAULT_POLICY)).toMatchObject({ action: 'suggest' })
-  expect(decideModel(warm('sonnet', 150_000), 'opus', 0.85, 1000, DEFAULT_POLICY)).toMatchObject({ action: 'set', why: 'upgrade' })
+  expect(decideModel(warm('sonnet', 150_000), 'opus', 0.7, 1000, UNCAPPED)).toMatchObject({ action: 'suggest' })
+  expect(decideModel(warm('sonnet', 150_000), 'opus', 0.85, 1000, UNCAPPED)).toMatchObject({ action: 'set', why: 'upgrade' })
+})
+
+test('a full cache keeps the model, upgrades and downgrades alike', () => {
+  expect(decideModel(warm('sonnet', 150_000), 'opus', 0.95, 1000, DEFAULT_POLICY)).toMatchObject({ action: 'keep', why: 'cache-full' })
+  expect(decideModel(warm('opus', 150_000), 'sonnet', 0.95, 1000, DEFAULT_POLICY)).toMatchObject({ action: 'keep', why: 'cache-full' })
+})
+
+test('just under the full threshold the switch logic applies as before', () => {
+  expect(decideModel(warm('opus', 99_999), 'sonnet', 0.95, 1000, DEFAULT_POLICY)).toMatchObject({ action: 'suggest', why: 'cache-warm' })
+})
+
+test('a reset point beats the full-cache rule', () => {
+  expect(decideModel({ ...warm('opus', 150_000), compacted: true }, 'sonnet', 0.95, 1, DEFAULT_POLICY)).toMatchObject({ action: 'set', why: 'compact' })
+})
+
+test('the full-cache threshold is configurable', () => {
+  expect(decideModel(warm('sonnet', 60_000), 'opus', 0.95, 1000, { ...DEFAULT_POLICY, cacheFullTokens: 50_000 })).toMatchObject({ action: 'keep', why: 'cache-full' })
 })
 
 test('a cold cache or a /compact is a reset point', () => {

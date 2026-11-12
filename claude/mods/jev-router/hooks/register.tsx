@@ -158,6 +158,7 @@ const WHY_LABEL: Record<string, string> = {
   upgrade: 'upgrade sicuro',
   'cheap-rewrite': 'riscrittura economica',
   'cache-warm': 'cache calda, cambio troppo caro',
+  'cache-full': 'cache piena',
   same: 'già sul modello scelto',
   'low-confidence': 'confidenza bassa',
   'no-answer': 'nessuna scelta di modello',
@@ -252,6 +253,7 @@ export const register: Register = (on, options) => {
     minConfidence: num(options?.minConfidence, DEFAULT_POLICY.minConfidence),
     upgradeConfidence: num(options?.upgradeConfidence, DEFAULT_POLICY.upgradeConfidence),
     downgradeMaxUsd: num(options?.downgradeMaxUsd, DEFAULT_POLICY.downgradeMaxUsd),
+    cacheFullTokens: num(options?.cacheFullTokens, DEFAULT_POLICY.cacheFullTokens),
   }
   const timeoutMs = num(options?.timeoutMs, 3000)
   const controlRate = num(options?.controlRate, 0.1)
