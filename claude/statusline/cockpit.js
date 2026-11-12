@@ -4,6 +4,7 @@
 //       node cockpit.js --subagent   → righe dei subagent (subagentStatusLine), una JSON line per task
 // Fail-safe: con input illeggibile stampa il minimo invece di lanciare.
 
+const crypto = require('crypto')
 const fs = require('fs')
 const os = require('os')
 const path = require('path')
@@ -46,7 +47,8 @@ function pctColor(p, amber, red) {
 // Branch e commit avanti rispetto all'upstream, con cache su file per non lanciare git a ogni refresh.
 function gitInfo(dir) {
   if (!dir) return null
-  const key = Buffer.from(dir).toString('base64url').slice(0, 40)
+  // Hash dell'intero percorso: un prefisso troncato collide tra repo sotto la stessa cartella.
+  const key = crypto.createHash('sha1').update(dir).digest('hex')
   const cacheFile = path.join(os.tmpdir(), `cockpit-git-${key}.json`)
   try {
     const c = JSON.parse(fs.readFileSync(cacheFile, 'utf8'))
@@ -58,7 +60,9 @@ function gitInfo(dir) {
     const branch = execFileSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], opts).toString().trim()
     let ahead = 0
     try { ahead = Number(execFileSync('git', ['rev-list', '--count', '@{u}..HEAD'], opts).toString().trim()) || 0 } catch {}
-    info = { branch, ahead }
+    let dirty = 0
+    try { dirty = execFileSync('git', ['status', '--porcelain'], opts).toString().split('\n').filter(Boolean).length } catch {}
+    info = { branch, ahead, dirty }
   } catch {}
   try { fs.writeFileSync(cacheFile, JSON.stringify({ at: Date.now(), info })) } catch {}
   return info
@@ -78,33 +82,23 @@ function main(d) {
   const parts = []
   const dir = d.workspace?.current_dir || d.cwd
   const git = gitInfo(dir)
-  const where = path.basename(dir || '') + (git?.branch ? ` ${C.dim}${git.branch}${git.ahead ? ` ↑${git.ahead}` : ''}${C.reset}` : '')
+  const where = path.basename(dir || '') + (git?.branch ? ` ${C.dim}${git.branch}${git.ahead ? ` ↑${git.ahead}` : ''}${git.dirty ? ` ${C.warn}±${git.dirty}${C.reset}${C.dim}` : ''}${C.reset}` : '')
   parts.push(`${C.bold}${where}${C.reset}`)
 
-  const id = d.model?.id
-  const effort = d.effort?.level
-  parts.push(`${modelColor(id)}${shortModel(id, d.model?.display_name)}${C.reset}${effort ? ` ${C.dim}${effort}${C.reset}` : ''}`)
+  const added = d.cost?.total_lines_added
+  const removed = d.cost?.total_lines_removed
+  if (added != null || removed != null) parts.push(`${C.ok}+${added ?? 0}${C.reset} ${C.bad}-${removed ?? 0}${C.reset}`)
 
-  const ctx = d.context_window?.used_percentage
-  if (ctx != null) parts.push(`ctx ${pctColor(ctx, 70, 85)}${Math.round(ctx)}%${C.reset}`)
-
-  const cost = d.cost?.total_cost_usd
-  if (cost != null) parts.push(`$${cost.toFixed(2)}`)
+  const dur = d.cost?.total_duration_ms
+  if (dur != null) {
+    const m = Math.floor(dur / 60000)
+    parts.push(`${C.dim}${m >= 60 ? `${Math.floor(m / 60)}h${String(m % 60).padStart(2, '0')}` : `${m}m`}${C.reset}`)
+  }
 
   const pc = d.prompt_cache
   if (pc && pc.hit_ratio != null) {
     const warm = pc.warm === false ? `${C.bad}cold${C.reset}` : `${C.dim}warm${C.reset}`
     parts.push(`cache ${pctColor(100 - pc.hit_ratio * 100, 10, 25)}${Math.round(pc.hit_ratio * 100)}%${C.reset} ${warm}`)
-  }
-
-  const rl = d.rate_limits
-  if (rl?.five_hour?.used_percentage != null) {
-    const p = rl.five_hour.used_percentage
-    parts.push(`5h ${pctColor(p, 70, 90)}${Math.round(p)}%${C.reset}${rl.five_hour.resets_at ? ` ${C.dim}↻${hhmm(rl.five_hour.resets_at)}${C.reset}` : ''}`)
-  }
-  if (rl?.seven_day?.used_percentage != null) {
-    const p = rl.seven_day.used_percentage
-    parts.push(`7g ${pctColor(p, 70, 90)}${Math.round(p)}%${C.reset}`)
   }
 
   // Jev scrive lo stato solo per la sessione che lo ha prodotto: niente dati di altre sessioni.
