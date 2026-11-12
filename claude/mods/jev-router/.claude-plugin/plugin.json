@@ -28,6 +28,12 @@
       "type": "number",
       "default": 0.1
     },
+    "cacheFullTokens": {
+      "title": "Cache piena (token di contesto)",
+      "description": "Sopra questa dimensione di contesto il modello non cambia, nemmeno per un upgrade: la riscrittura della cache costerebbe troppo",
+      "type": "number",
+      "default": 100000
+    },
     "controlRate": {
       "title": "Quota di sessioni di controllo",
       "description": "Frazione di sessioni in cui Jev viene interrogato ma non applicato (A/B)",

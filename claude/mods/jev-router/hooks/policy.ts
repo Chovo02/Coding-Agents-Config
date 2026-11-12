@@ -28,6 +28,8 @@ export type Policy = {
   minConfidence: number
   upgradeConfidence: number
   downgradeMaxUsd: number
+  // From this many context tokens the cache counts as full: a model switch would throw away too much.
+  cacheFullTokens: number
   cacheTtlMs: number
 }
 
@@ -35,6 +37,7 @@ export const DEFAULT_POLICY: Policy = {
   minConfidence: 0.6,
   upgradeConfidence: 0.8,
   downgradeMaxUsd: 0.1,
+  cacheFullTokens: 100_000,
   cacheTtlMs: 60 * 60 * 1000,
 }
 
@@ -58,7 +61,7 @@ export function resetPoint(s: Session, now: number, ttlMs: number): ResetWhy | u
 
 export type ModelDecision =
   | { action: 'set'; alias: string; why: ResetWhy | 'upgrade' | 'cheap-rewrite'; estUsd: number }
-  | { action: 'keep'; why: 'no-answer' | 'low-confidence' | 'same' }
+  | { action: 'keep'; why: 'no-answer' | 'low-confidence' | 'same' | 'cache-full' }
   | { action: 'suggest'; alias: string; why: 'cache-warm'; estUsd: number }
 
 export function decideModel(
@@ -76,6 +79,8 @@ export function decideModel(
   if (choice === s.sticky) return { action: 'keep', why: 'same' }
   const reset = resetPoint(s, now, p.cacheTtlMs)
   if (reset) return { action: 'set', alias: choice, why: reset, estUsd: 0 }
+  // A warm cache this full: any switch re-writes so much context that even an upgrade is not worth it.
+  if (s.contextTokens >= p.cacheFullTokens) return { action: 'keep', why: 'cache-full' }
 
   const estUsd = cacheWriteUsd(MODELS[choice] ?? choice, s.contextTokens)
   const isUpgrade = (RANK[choice] ?? 0) > (RANK[s.sticky ?? 'opus'] ?? 2)
