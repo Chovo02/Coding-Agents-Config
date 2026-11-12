@@ -249,20 +249,6 @@ async function writeStatus($: any, status: object) {
   } catch {}
 }
 
-// Switches the session's real model with /model. Falls back to a per-turn override when the
-// command is refused or the model did not change (e.g. a confirmation it could not show).
-async function applyModel($: any, alias: string): Promise<{ mechanism: 'command' | 'override'; error?: string }> {
-  try {
-    await $.command.run({ command: 'model', args: alias })
-    const now: string = await $.session.model()
-    const target = MODELS[alias] ?? alias
-    if (now && now.includes(target)) return { mechanism: 'command' }
-    return { mechanism: 'override', error: `/model eseguito ma la sessione è su ${now}` }
-  } catch (error) {
-    return { mechanism: 'override', error: String((error as Error)?.message ?? error) }
-  }
-}
-
 export const register: Register = (on, options) => {
   const policy: Policy = {
     ...DEFAULT_POLICY,
@@ -278,7 +264,6 @@ export const register: Register = (on, options) => {
   let pendingEffort: { effort: string; confidence: number } | undefined
   let pendingRoute: Route | undefined
   let pendingRun: Run | undefined
-  let pendingCommand: string | undefined
   const turns = new Map<string, { effort?: string; model?: string; run?: Run }>()
   const agentSources = new Map<string, string>()
   // Module memory: a hot reload forgets it, and the next prompt then counts as cold, which only
@@ -355,11 +340,9 @@ export const register: Register = (on, options) => {
           routed.effortConfidence = run.effortConfidence
         }
         if (decision.action === 'set') {
-          // /model cannot run while prompt.submit holds the turn: this turn runs on the override,
-          // and turn.complete switches the session's real model (its cache is on the new model by then).
+          // Per-turn override only: Jev never runs /model, so the session default is never rewritten.
           const pinned: Sticky = { alias: decision.alias, model: MODELS[decision.alias] ?? decision.alias, setAt: now, why: decision.why, mechanism: 'override' }
           await update($, sticky, () => pinned)
-          pendingCommand = decision.alias
           session.sticky = decision.alias
           run.model = pinned.model
           routed.alias = decision.alias
@@ -427,16 +410,6 @@ export const register: Register = (on, options) => {
 
   on('turn.complete', async ($, e, next) => {
     const result = await next(e)
-    if (!e.agentId && pendingCommand) {
-      const alias = pendingCommand
-      pendingCommand = undefined
-      const applied = await applyModel($, alias)
-      await update($, sticky, current => {
-        if (!current || current.alias !== alias) return current
-        const { error: _previous, ...rest } = current
-        return { ...rest, mechanism: applied.mechanism, ...(applied.error ? { error: applied.error } : {}) }
-      })
-    }
     if (!e.agentId) {
       const now: number = await $.clock.now()
       session.lastResponseAt = now
