@@ -49,7 +49,7 @@ Esempio di risposta con un finding:
   Evidenza: `if (token.exp < now)` non confronta con `<=`.
 
 ### Nit
-- `src/utils/date.ts:10` — Il nome `d` non è descrittivo. (esempio di nit, al massimo cinque)
+- `src/utils/parse.ts:27` — Un input vuoto produce `NaN` invece di un errore esplicito. Il caso è poco probabile perché il chiamante filtra l'input, quindi è solo un Nit. (esempio di nit di correttezza a bassa gravità, al massimo cinque)
 
 ### Ambito controllato
 File modificati dalla PR: 3. Nessun altro finding.
