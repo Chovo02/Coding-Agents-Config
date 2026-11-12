@@ -3,7 +3,7 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Claude Code 2.1.287+](https://img.shields.io/badge/Claude%20Code-2.1.287%2B%20mod-d97757.svg)](https://claude.com/blog/claude-code-mods)
 
-**A Claude Code mod that puts a live agent dashboard in your terminal**: context and cost, an advisor timeline, every permission check, and your subagents as cards or swimlanes. Every number comes from a real session event, and nothing leaves your machine.
+**A Claude Code mod that puts a live agent dashboard in your terminal**: context and cost, an advisor timeline, refused permission checks, and your subagents as cards or swimlanes with a detail pane for each. Every number comes from a real session event, and nothing leaves your machine.
 
 <p align="center">
   <img src="docs/media/demo.gif" alt="Flightdeck during a live session: five audit subagents fan out as cards, switch to swimlanes and finish, while the permission gate fills with checks" width="520">
@@ -61,7 +61,6 @@ https://github.com/user-attachments/assets/9ad0fcc3-c81c-427a-a743-f7b6c49f5885
 | --- | --- | --- |
 | **main** | model, effort, permission mode, request count; a context gauge with compactions (⟲); cost and the first two rate-limit windows when your plan reports them | `turn.step`, `session.measure`, `session.compact`, `$.session.usage()` |
 | **architect** | consults on a timeline, whether one is running, how long the last took; optionally the moment of each consult; the first line of a subagent architect's advice | a spawn of a matching agent type, or a matching server tool in the assistant's rows |
-| **gate** | one cell per permission check: green allowed without asking, blue decided by the auto-mode classifier or you and then run, amber pending, red ✗ denied, dim if made inside a subagent. Totals, and a drill-down per tool family with credentials masked | `tool.check`, settled by the `tool.call` around it |
 | **agents** | cards side by side while they fit: the task, type, live context and output tokens, steps, a running clock, `max_tokens` in red. Beyond that, swimlanes on one time axis | `agent.spawn`, `turn.step`, `tool.call`, `turn.complete` |
 | **loops** | model loops that match no card: workflow agents, compactions, memory forks | `turn.step` ids no card claims |
 | **receipt** | the running turn, or the last one: duration, agents, edits, errors, cost added | `turn.start`, `turn.complete` |
@@ -83,7 +82,7 @@ Focus the pane with `ctrl+x tab`, then:
 | Key | Does |
 | --- | --- |
 | `1`, `2`, … | expand an agent card or lane: its full task, last 3 tool calls, start of its answer |
-| `f` `s` `o` | open the gate's file / shell / other drill-down: the last 5 checks and their verdicts |
+| click a card | expands it in place and opens its detail pane: every tool call (credentials masked) and the full answer; a second click closes both |
 
 `/clear` resets the pane along with the conversation.
 
@@ -102,7 +101,7 @@ Flightdeck only watches. Every hook passes its event on unchanged: it never deni
 | It sees | Through |
 | --- | --- |
 | every tool call's name and input, and whether it failed | `tool.call` |
-| every permission verdict | `tool.check` |
+| every refused permission check | `tool.check` |
 | subagent spawns, their model requests and token usage, and their final answers | `agent.spawn`, `turn.step`, `turn.complete` |
 | your prompts' first 70 characters, for the log | `turn.start` |
 | context, cost and rate-limit readings | `session.measure`, `$.session.usage()` |
@@ -127,8 +126,7 @@ In `/config`, or under `pluginConfigs["flightdeck"].options` in `settings.json`:
 | `architectPattern` | `advisor\|architect` | case-insensitive regex for agent types and server tools that count as the architect |
 | `matchDescriptions` | `false` | also match agent descriptions, not just type names |
 | `architectLabel` | `ARCHITECT` | the architect's name in the pane |
-| `gateLabel` | `GATE` | the permission panel's name |
-| `panels` | `main,architect,gate,agents,loops,receipt,log` | which panels show, in order |
+| `panels` | `main,architect,agents,loops,receipt,log,jev` | which panels show, in order |
 | `layout` | `auto` | `mini`, `compact`, `wide`, or `auto` (mini inline, wide from 110 columns docked) |
 | `maxCards` | `3` | cards side by side before swimlanes (1–6); fewer if the pane is too narrow |
 | `motion` | `while-active` | `off` keeps connectors still |

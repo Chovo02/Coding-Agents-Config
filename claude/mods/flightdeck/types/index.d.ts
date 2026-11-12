@@ -1,10 +1,5 @@
 export type Moment = 'before a plan' | 'error repeats' | 'before done'
 
-export type Bucket = 'file' | 'shell' | 'other'
-
-/** rule: settings allowed it. ask: put to the decider, outcome pending. cleared: asked, then ran. deny: refused. */
-export type Verdict = 'rule' | 'ask' | 'cleared' | 'deny'
-
 export type Main = { model: string; effort: string; mode: string; steps: number; isRunning: boolean }
 
 export type Usage = {
@@ -20,20 +15,6 @@ export type Usage = {
 export type Consult = { id: string; at: number; endAt: number | null; moment: Moment; via: string }
 
 export type Architect = { consults: Consult[]; ids: string[]; seen: string[]; lastAdvice: string }
-
-export type Check = {
-  id: string
-  tool: string
-  bucket: Bucket
-  verdict: Verdict
-  inSubagent: boolean
-  detail: string
-  at: number
-}
-
-export type Tally = { rule: number; ask: number; cleared: number; deny: number }
-
-export type Gate = { recent: Check[]; totals: Record<Bucket, Tally> }
 
 export type ToolNote = { tool: string; text: string; isError: boolean }
 
@@ -86,7 +67,7 @@ export type Receipt = {
 
 export type Layout = 'auto' | 'compact' | 'wide' | 'mini'
 
-export type View = { expanded: string | null; gateOpen: Bucket | null; layout: Layout | null }
+export type View = { expanded: string | null; detail: string | null; layout: Layout | null }
 
 export type Roster = { architectTypes: string[] }
 
@@ -97,7 +78,6 @@ declare module 'claude-code' {
       main: Main
       usage: Usage
       architect: Architect
-      gate: Gate
       agents: AgentCard[]
       loops: Loop[]
       log: LogLine[]

@@ -33,17 +33,11 @@
       "type": "string",
       "default": "ARCHITECT"
     },
-    "gateLabel": {
-      "title": "Gate label",
-      "description": "Name shown for the permission panel",
-      "type": "string",
-      "default": "GATE"
-    },
     "panels": {
       "title": "Panels",
-      "description": "Comma-separated panels in display order: main, architect, gate, agents, loops, receipt, log, jev. Leave one out to hide it.",
+      "description": "Comma-separated panels in display order: main, architect, agents, loops, receipt, log, jev. Leave one out to hide it.",
       "type": "string",
-      "default": "main,architect,gate,agents,loops,receipt,log,jev"
+      "default": "main,architect,agents,loops,receipt,log,jev"
     },
     "motion": {
       "title": "Motion",

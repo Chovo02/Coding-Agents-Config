@@ -4,9 +4,6 @@
 import type {
   AgentCard,
   Architect,
-  Bucket,
-  Check,
-  Gate,
   Layout,
   LogLine,
   Loop,
@@ -14,7 +11,6 @@ import type {
   Moment,
   Receipt,
   Roster,
-  Tally,
   ToolNote,
   Turn,
   Usage,
@@ -36,10 +32,8 @@ export const DEFAULT_USAGE: Usage = {
   lastCompactAt: null,
 }
 export const DEFAULT_ARCHITECT: Architect = { consults: [], ids: [], seen: [], lastAdvice: '' }
-const ZERO: Tally = { rule: 0, ask: 0, cleared: 0, deny: 0 }
-export const DEFAULT_GATE: Gate = { recent: [], totals: { file: ZERO, shell: ZERO, other: ZERO } }
 export const DEFAULT_TURN: Turn = { edits: 0, errorStreak: 0, errors: 0, isReviewing: false, startedAt: 0, costAtStart: null }
-export const DEFAULT_VIEW: View = { expanded: null, gateOpen: null, layout: null }
+export const DEFAULT_VIEW: View = { expanded: null, detail: null, layout: null }
 export const DEFAULT_ROSTER: Roster = { architectTypes: [] }
 
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v)
@@ -50,15 +44,6 @@ export const normalize = <T extends object>(def: T, stored: unknown): T =>
 
 /** A stored list, or empty when what is stored is not a list. */
 export const listOf = <T>(stored: unknown): T[] => (Array.isArray(stored) ? (stored as T[]) : [])
-
-export const normalizeGate = (stored: unknown): Gate => {
-  const g = normalize(DEFAULT_GATE, stored)
-  const totals = normalize(DEFAULT_GATE.totals, g.totals)
-  return {
-    recent: listOf<Check>(g.recent),
-    totals: { file: normalize(ZERO, totals.file), shell: normalize(ZERO, totals.shell), other: normalize(ZERO, totals.other) },
-  }
-}
 
 export const normalizeCard = (stored: unknown): AgentCard =>
   normalize<AgentCard>(
@@ -91,13 +76,12 @@ export const normalizeLog = (stored: unknown): LogLine[] =>
 
 // ---------------------------------------------------------------- config
 
-export type Panel = 'main' | 'architect' | 'gate' | 'agents' | 'loops' | 'receipt' | 'log' | 'jev'
-const PANELS: readonly Panel[] = ['main', 'architect', 'gate', 'agents', 'loops', 'receipt', 'log', 'jev']
+export type Panel = 'main' | 'architect' | 'agents' | 'loops' | 'receipt' | 'log' | 'jev'
+const PANELS: readonly Panel[] = ['main', 'architect', 'agents', 'loops', 'receipt', 'log', 'jev']
 
 export type Config = {
   architect: RegExp
   architectLabel: string
-  gateLabel: string
   panels: Panel[]
   motion: boolean
   moments: boolean
@@ -130,7 +114,6 @@ export const parseConfig = (o: Readonly<Record<string, unknown>>): Config => {
   return {
     architect: safeRegExp(str('architectPattern', ''), 'advisor|architect'),
     architectLabel: str('architectLabel', 'ARCHITECT'),
-    gateLabel: str('gateLabel', 'GATE'),
     panels: panels.length > 0 ? [...new Set(panels)] : [...PANELS],
     motion: str('motion', 'while-active') !== 'off',
     moments: bool('moments', true),
@@ -146,7 +129,7 @@ export const parseConfig = (o: Readonly<Record<string, unknown>>): Config => {
 // ---------------------------------------------------------------- palette
 
 export type Palette = 'theme' | 'pastel'
-export type Colors = Record<'main' | 'agent' | 'gate' | 'cleared' | 'arch' | 'jev' | 'amber' | 'warn' | 'dim' | 'faint' | 'text', string>
+export type Colors = Record<'main' | 'agent' | 'ok' | 'cleared' | 'arch' | 'jev' | 'amber' | 'warn' | 'dim' | 'faint' | 'text', string>
 
 /**
  * `theme` names the person's own theme colours (they follow light, dark and colour-blind themes);
@@ -156,7 +139,7 @@ export const PALETTES: Record<Palette, Colors> = {
   theme: {
     main: 'claude',
     agent: 'suggestion',
-    gate: 'success',
+    ok: 'success',
     cleared: 'permission',
     arch: 'merged',
     jev: 'remember',
@@ -169,7 +152,7 @@ export const PALETTES: Record<Palette, Colors> = {
   pastel: {
     main: '#7dd3fc',
     agent: '#93c5fd',
-    gate: '#86efac',
+    ok: '#86efac',
     cleared: '#5eead4',
     arch: '#c4b5fd',
     jev: '#f0abfc',
@@ -227,8 +210,11 @@ export const fmtTimer = (ms: number) => {
 
 export const fmtClock = (ms: number) => (ms > 0 ? new Date(ms).toTimeString().slice(0, 8) : '--:--:--')
 
-/** `1 error`, `2 errors`. */
-export const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`
+/** The first letter of a label up: `effort` → `Effort`. Values inside a label are left as they are. */
+export const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1)
+
+/** `1 Error`, `2 Errors`: a counted label, capitalised like the other labels. */
+export const plural = (n: number, word: string) => `${n} ${cap(word)}${n === 1 ? '' : 's'}`
 
 export const fmtUsd = (n: number) => (n >= 100 ? `$${Math.round(n)}` : `$${n.toFixed(2)}`)
 
@@ -258,17 +244,12 @@ const SECRETS: [RegExp, string][] = [
   [/(\b[a-z][a-z0-9+.-]*:\/\/[^\s/:@]+:)[^\s@]+@/gi, '$1•••@'],
 ]
 
-/** What the gate drill-down may store: credentials masked before anything is written to state. */
+/** What a tool note may store: credentials masked before anything is written to state. */
 export const redact = (s: string) => SECRETS.reduce((t, [re, to]) => t.replace(re, to), s)
 
-// ---------------------------------------------------------------- tools and gate
+// ---------------------------------------------------------------- tools
 
-const FILE_TOOLS = new Set(['Read', 'Edit', 'Write', 'NotebookEdit', 'Glob', 'Grep'])
-const SHELL_TOOLS = new Set(['Bash', 'PowerShell'])
 export const EDIT_TOOLS = new Set(['Edit', 'Write', 'NotebookEdit'])
-
-export const bucketOf = (tool: string): Bucket =>
-  FILE_TOOLS.has(tool) ? 'file' : SHELL_TOOLS.has(tool) ? 'shell' : 'other'
 
 /** One line saying what a call was about: its command, path or pattern; redacted. */
 export const describeInput = (tool: string, input: unknown) => {
@@ -279,54 +260,6 @@ export const describeInput = (tool: string, input: unknown) => {
       ? i.command
       : path || (typeof i.pattern === 'string' ? i.pattern : typeof i.url === 'string' ? i.url : typeof i.description === 'string' ? i.description : '')
   return redact(what ? `${tool} → ${what}` : tool)
-}
-
-/** Keeps the last `max` checks, but never drops a pending ask: its settle must still find it. */
-export const trimRecent = (list: Check[], max: number): Check[] => {
-  let extra = list.length - max
-  if (extra <= 0) return list
-  const out: Check[] = []
-  for (const c of list) {
-    if (extra > 0 && c.verdict !== 'ask') {
-      extra -= 1
-      continue
-    }
-    out.push(c)
-  }
-  return out.slice(-max * 2)
-}
-
-export const recordCheck = (g: Gate, c: Check): Gate => {
-  const t = g.totals[c.bucket]
-  return {
-    recent: trimRecent([...g.recent, c], 80),
-    totals: { ...g.totals, [c.bucket]: { ...t, [c.verdict]: t[c.verdict] + 1 } },
-  }
-}
-
-/** An `ask` settled by the call that followed it: it ran (cleared) or was refused (deny). */
-export const settleCheck = (g: Gate, id: string, didRun: boolean): Gate => {
-  const c = g.recent.find(r => r.id === id && r.verdict === 'ask')
-  if (!c) return g
-  const verdict = didRun ? 'cleared' : 'deny'
-  const t = g.totals[c.bucket]
-  return {
-    recent: g.recent.map(r => (r === c ? { ...r, verdict } : r)),
-    totals: { ...g.totals, [c.bucket]: { ...t, ask: Math.max(0, t.ask - 1), [verdict]: t[verdict] + 1 } },
-  }
-}
-
-export const gateSummary = (g: Gate) => {
-  const all = (['file', 'shell', 'other'] as const).reduce(
-    (s, k) => ({
-      rule: s.rule + g.totals[k].rule,
-      ask: s.ask + g.totals[k].ask,
-      cleared: s.cleared + g.totals[k].cleared,
-      deny: s.deny + g.totals[k].deny,
-    }),
-    { ...ZERO },
-  )
-  return { ...all, total: all.rule + all.ask + all.cleared + all.deny }
 }
 
 // ---------------------------------------------------------------- turn and architect
@@ -403,7 +336,8 @@ export const applyStep = (c: AgentCard, s: { model: string; usage: StepUsage; st
   }
 }
 
-export const noteTool = (c: AgentCard, n: ToolNote): AgentCard => ({ ...c, tools: [...c.tools, n].slice(-3) })
+/** Every tool call the card has seen, up to 200; the inline card shows the last three, the detail pane all of them. */
+export const noteTool = (c: AgentCard, n: ToolNote): AgentCard => ({ ...c, tools: [...c.tools, n].slice(-200) })
 
 export const stepLoop = (loops: Loop[], id: string, at: number): Loop[] => {
   const found = loops.find(l => l.id === id)
@@ -496,10 +430,45 @@ export const jevAlternates = (probabilities: Record<string, number> | undefined,
 /** Cells of the effort meter, as the main panel draws it: `low` one, `max` four. */
 export const jevEffortCells = (effort: string | undefined) => ({ low: 1, medium: 2, high: 3, xhigh: 4, max: 4 })[effort ?? ''] ?? 0
 
-/** Rows the jev panel takes: borders, header, prompt, outcome, footer, then the model and effort rows when Jev weighed them, and an error line. */
+/** jev-router's `sticky` state: the model it last chose, and whether /model switched the session to it. */
+export type JevSticky = { alias: string; model: string; mechanism: string; error?: string }
+
+export const normalizeSticky = (raw: unknown): JevSticky | null => {
+  const s = raw as Partial<JevSticky> | null | undefined
+  if (!s || typeof s !== 'object' || typeof s.model !== 'string') return null
+  return {
+    alias: String(s.alias ?? ''),
+    model: s.model,
+    mechanism: String(s.mechanism ?? ''),
+    error: typeof s.error === 'string' ? s.error : undefined,
+  }
+}
+
+export type JevState = { kind: 'applied' | 'not-applied' | 'pending'; text: string }
+
+/**
+ * Whether Jev's decision reached the session. A model counts as applied once /model has switched
+ * the session to it (`sticky.mechanism` 'command'); a refusal, or a switch that did not take, is
+ * not applied; a decision whose turn has not ended yet is pending. An effort on its own rides the
+ * turn's own override, and is taken as applied: the engine does not report back that it was used.
+ */
+export const jevState = (run: JevRun, sticky: JevSticky | null): JevState => {
+  if (run.outcome !== 'routed') return { kind: 'not-applied', text: jevOutcome(run) }
+  if (run.model) {
+    const s = sticky && sticky.model === run.model ? sticky : null
+    if (s?.error) return { kind: 'not-applied', text: `${prettyModel(run.model)} non attivato: ${s.error}` }
+    if (s?.mechanism === 'command') {
+      return { kind: 'applied', text: prettyModel(run.model) + (run.effort ? ` · effort ${run.effort}` : '') }
+    }
+    return { kind: 'pending', text: `${prettyModel(run.model)} attivo su questo turno, la sessione passa a fine turno` }
+  }
+  return { kind: 'applied', text: `effort ${run.effort ?? ''}`.trim() }
+}
+
+/** Rows the jev panel takes: borders, header, prompt, the state bar, then the model and effort rows when Jev weighed them, and an error line. */
 export const jevPanelRows = (run: JevRun | null) =>
   run
-    ? 6 + (run.probabilities ? 2 : 0) + (run.effortProbabilities ? 2 : 0) + (run.error ? 1 : 0)
+    ? 5 + (run.probabilities ? 2 : 0) + (run.effortProbabilities ? 2 : 0) + (run.error ? 1 : 0)
     : 0
 
 // ---------------------------------------------------------------- layout

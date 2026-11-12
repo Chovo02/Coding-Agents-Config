@@ -3,7 +3,6 @@ import { expect, mock, test } from 'claude-code/testing'
 
 import {
   DEFAULT_ARCHITECT,
-  DEFAULT_GATE,
   DEFAULT_TURN,
   afterCall,
   applyStep,
@@ -11,13 +10,11 @@ import {
   describeInput,
   endConsult,
   fitLegend,
-  gateSummary,
   lanes,
   limitLabel,
   logRows,
   momentOf,
   normalizeCard,
-  normalizeGate,
   normalizeLog,
   titleLines,
   parseConfig,
@@ -30,16 +27,14 @@ import {
   jevEffortCells,
   jevOutcome,
   jevPanelRows,
+  jevState,
   normalizeJev,
+  normalizeSticky,
   adviceLine,
   receiptOf,
-  recordCheck,
   redact,
-  settleCheck,
-  trimRecent,
   startConsult,
 } from '../hooks/core'
-import type { Check } from '../types'
 
 // ---------------------------------------------------------------- pure behaviour
 
@@ -51,61 +46,6 @@ test('redaction masks credentials before anything is stored', () => {
   expect(redact('password=hunter2 ls')).not.toContain('hunter2')
   expect(redact('ls -la src/')).toBe('ls -la src/')
   expect(describeInput('Read', { file_path: 'C:\\Users\\me\\proj\\src\\main.ts' })).toBe('Read → src/main.ts')
-})
-
-const check = (id: string, verdict: Check['verdict'], bucket: Check['bucket'] = 'shell'): Check => ({
-  id,
-  tool: 'Bash',
-  bucket,
-  verdict,
-  inSubagent: false,
-  detail: 'Bash → ls',
-  at: 1,
-})
-
-test('an ask is settled by the call that follows: cleared if it ran, deny if refused', () => {
-  let g = recordCheck(DEFAULT_GATE, check('a', 'ask'))
-  g = recordCheck(g, check('b', 'ask'))
-  g = recordCheck(g, check('c', 'rule', 'file'))
-  g = settleCheck(g, 'a', true)
-  g = settleCheck(g, 'b', false)
-  g = settleCheck(g, 'zzz', true) // not an ask: unchanged
-  const s = gateSummary(g)
-  expect([s.rule, s.ask, s.cleared, s.deny, s.total]).toEqual([1, 0, 1, 1, 3])
-  expect(g.recent.map(c => c.verdict)).toEqual(['cleared', 'deny', 'rule'])
-})
-
-test('the gate tallies a mixed run of verdicts per family', () => {
-  let g = DEFAULT_GATE
-  g = recordCheck(g, check('r1', 'rule', 'file'))
-  g = recordCheck(g, check('a1', 'ask', 'shell'))
-  g = recordCheck(g, check('a2', 'ask', 'shell'))
-  g = recordCheck(g, check('d1', 'deny', 'other'))
-  g = settleCheck(g, 'a1', true)
-  g = settleCheck(g, 'a2', false)
-  expect(g.totals.file).toEqual({ rule: 1, ask: 0, cleared: 0, deny: 0 })
-  expect(g.totals.shell).toEqual({ rule: 0, ask: 0, cleared: 1, deny: 1 })
-  expect(g.totals.other.deny).toBe(1)
-  expect(gateSummary(g)).toEqual({ rule: 1, ask: 0, cleared: 1, deny: 2, total: 4 })
-  expect(gateSummary(DEFAULT_GATE).total).toBe(0)
-})
-
-test('a v1-shaped gate reads as empty, then records normally', () => {
-  const g = normalizeGate({ file: { allow: 3, ask: 1, deny: 0, cleared: 2 }, shell: null })
-  expect(gateSummary(g).total).toBe(0)
-  const next = recordCheck(g, check('n1', 'rule', 'file'))
-  expect(next.totals.file.rule).toBe(1)
-  expect(next.recent.length).toBe(1)
-})
-
-test('a pending ask is never trimmed out before it settles', () => {
-  let g = recordCheck(DEFAULT_GATE, check('old-ask', 'ask'))
-  for (let i = 0; i < 120; i += 1) g = recordCheck(g, check(`r${i}`, 'rule', 'file'))
-  expect(g.recent.length).toBe(80)
-  expect(g.recent.some(c => c.id === 'old-ask')).toBe(true)
-  g = settleCheck(g, 'old-ask', true)
-  expect(gateSummary(g).ask).toBe(0)
-  expect(trimRecent([check('a', 'rule'), check('b', 'rule')], 5).length).toBe(2)
 })
 
 test('edits count from every loop; errors only from the main loop', () => {
@@ -139,12 +79,12 @@ test('consults open, close by id, and draw on a shared timeline', () => {
 
 test('config is read leniently: bad values fall back to defaults', () => {
   const d = parseConfig({})
-  expect([d.maxCards, d.layout, d.motion, d.moments, d.panels.length]).toEqual([3, 'auto', true, true, 8])
+  expect([d.maxCards, d.layout, d.motion, d.moments, d.panels.length]).toEqual([3, 'auto', true, true, 7])
   expect(d.architect.test('fable-advisor:fable-advisor')).toBe(true)
-  const c = parseConfig({ architectPattern: '([', maxCards: 99, layout: 'diagonal', panels: 'log, gate ,nope,gate', motion: 'off' })
+  const c = parseConfig({ architectPattern: '([', maxCards: 99, layout: 'diagonal', panels: 'log, gate ,nope,agents', motion: 'off' })
   expect(c.architect.test('advisor')).toBe(true) // invalid regex → default
   expect([c.maxCards, c.layout, c.motion]).toEqual([6, 'auto', false])
-  expect(c.panels).toEqual(['log', 'gate'])
+  expect(c.panels).toEqual(['log', 'agents']) // the removed gate panel and unknown names are dropped
 })
 
 test("jev-router's last run reads leniently and draws as /jev-last words it", () => {
@@ -172,19 +112,25 @@ test("jev-router's last run reads leniently and draws as /jev-last words it", ()
   expect(jevBars(run, 10).map(b => [b.alias, b.pct, b.isChoice])).toEqual([['haiku', 97, true], ['sonnet', 3, false], ['opus', 0, false]])
   expect(jevBars(run, 10)[0]?.bar).toBe('██████████')
   expect(jevEffortBars(run, 10).map(b => [b.alias, b.pct, b.isChoice])).toEqual([['low', 97, true], ['medium', 2, false], ['high', 1, false], ['max', 0, false]])
-  expect(jevPanelRows(run)).toBe(6 + 2 + 2)
-  expect(jevPanelRows(normalizeJev({ at: 1, outcome: 'timeout', latencyMs: 8000, error: 'x' }))).toBe(6 + 1)
+  expect(jevPanelRows(run)).toBe(5 + 2 + 2)
+  expect(jevPanelRows(normalizeJev({ at: 1, outcome: 'timeout', latencyMs: 8000, error: 'x' }))).toBe(5 + 1)
   expect(jevAlternates(run.probabilities, run.choice)).toEqual([{ alias: 'sonnet', pct: 3 }, { alias: 'opus', pct: 0 }])
   expect(jevAlternates(run.effortProbabilities, run.effortChoice).map(a => a.alias)).toEqual(['medium', 'high', 'max'])
   expect([undefined, 'low', 'medium', 'high', 'xhigh', 'max', 'nope'].map(jevEffortCells)).toEqual([0, 1, 2, 3, 4, 4, 0])
   expect(jevOutcome(normalizeJev({ at: 1, outcome: 'no-key' })!)).toContain('TYPESAFE_API_KEY')
 })
 
+test('a Jev decision reads as applied only once /model has switched the session to it', () => {
+  const routed = normalizeJev({ at: 1, prompt: 'x', jevModel: 'j', outcome: 'routed', latencyMs: 1, choice: 'haiku', confidence: 0.9, model: 'claude-haiku-5-5', effort: 'low' })!
+  expect(jevState(routed, null).kind).toBe('pending')
+  expect(jevState(routed, normalizeSticky({ alias: 'haiku', model: 'claude-haiku-5-5', mechanism: 'command' }))).toEqual({ kind: 'applied', text: 'Haiku 5.5 · effort low' })
+  expect(jevState(routed, normalizeSticky({ alias: 'haiku', model: 'claude-haiku-5-5', mechanism: 'override', error: 'still on sonnet' })).kind).toBe('not-applied')
+  expect(jevState(normalizeJev({ at: 1, prompt: 'x', jevModel: 'j', outcome: 'timeout', latencyMs: 9 })!, null).kind).toBe('not-applied')
+  expect(jevState(normalizeJev({ at: 1, prompt: 'x', jevModel: 'j', outcome: 'routed', latencyMs: 9, effort: 'max' })!, null)).toEqual({ kind: 'applied', text: 'effort max' })
+})
+
 test('state saved under an older shape still reads', () => {
   expect(normalizeLog([{ at: '08:00:00', who: 'jev', text: 'x' }])[0]).toEqual({ at: 0, who: 'jev', text: 'x', agentId: null, kind: 'info' })
-  const g = normalizeGate({ file: { allow: 1 } }) // v1 gate shape
-  expect(g.recent).toEqual([])
-  expect(g.totals.shell.rule).toBe(0)
   expect(normalizeCard({ id: 'a', status: 'done' }).tools).toEqual([])
 })
 
@@ -227,6 +173,8 @@ test('layout math: lanes share one axis, the log gets 4-8 rows, the legend never
 const engine = (on: On) => {
   mock.clock(on)
   on('ui.status', () => ({ value: undefined }))
+  on('ui.open', () => ({ value: { isPlaced: true } }))
+  on('ui.close', () => ({ value: undefined }))
   on('turn.start', (_$, e) => ({ turnId: e.turnId }))
   on('turn.complete', () => ({ text: '' }))
 }
@@ -262,10 +210,10 @@ test('a fresh session draws on every surface and width, empty panels hidden', as
   for (const surface of ['terminal', 'desktop', 'vscode', 'mobile'] as const) {
     for (const cols of [40, 60, 86, 120]) {
       const ui = await $.ui.mount({ ...pane(cols), surface })
-      expect(await ui.find({ text: /· main$/ })).toBeDefined()
-      expect(await ui.find({ text: /session log/ })).toBeDefined()
-      expect(await ui.find({ text: /agents ·/ })).toBeUndefined() // no subagents: no agents panel
-      expect(await ui.find({ text: /permissions/ })).toBeUndefined() // no checks yet: no gate panel
+      expect(await ui.find({ text: /· Main$/ })).toBeDefined()
+      expect(await ui.find({ text: /Session log/ })).toBeDefined()
+      expect(await ui.find({ text: /Agents ·/ })).toBeUndefined() // no subagents: no agents panel
+      expect(await ui.find({ text: /Permissions/ })).toBeUndefined() // the gate panel is gone
       await ui.unmount()
     }
   }
@@ -283,9 +231,8 @@ test('inline above the prompt, the pane is a summary of at most 8 rows', async (
     const ui = await $.ui.mount({ ...pane(80), props: { ...pane(80).props, placement: 'inline' as const }, surface })
     const root = (await ui.drawn()) as { children?: unknown[] }
     expect((root.children ?? []).filter(Boolean).length <= 8).toBe(true)
-    expect(await ui.find({ text: /\+2 more agents/ })).toBeDefined()
-    expect(await ui.find({ text: /1 allowed/ })).toBeDefined()
-    expect(await ui.find({ text: /session log/ })).toBeUndefined()
+    expect(await ui.find({ text: /\+2 More agents/ })).toBeDefined()
+    expect(await ui.find({ text: /Session log/ })).toBeUndefined()
     await ui.unmount()
   }
 })
@@ -305,7 +252,7 @@ test('/clear starts the pane fresh', async ($, on) => {
 test('colours come from the theme by default, raw hex only when asked', async ($, on) => {
   engine(on)
   const ui = await $.ui.mount({ ...pane(64), surface: 'terminal' })
-  const title = await ui.find({ text: /· main$/ })
+  const title = await ui.find({ text: /· Main$/ })
   expect(title?.props.color).toBe('claude')
   await ui.unmount()
 })
@@ -313,7 +260,7 @@ test('colours come from the theme by default, raw hex only when asked', async ($
 test('pastel keeps the fixed dark-terminal colours', { options: { palette: 'pastel' } }, async ($, on) => {
   engine(on)
   const ui = await $.ui.mount({ ...pane(64), surface: 'terminal' })
-  expect((await ui.find({ text: /· main$/ }))?.props.color).toBe('#7dd3fc')
+  expect((await ui.find({ text: /· Main$/ }))?.props.color).toBe('#7dd3fc')
   await ui.unmount()
 })
 
@@ -336,7 +283,7 @@ test('subagents become cards, then swimlanes past the card limit; a card expands
   await $.agent.spawn(spawn('general-purpose', 'Review the parser'))
   for (const surface of ['terminal', 'desktop'] as const) {
     const lanesUi = await $.ui.mount({ ...pane(64), surface })
-    expect(await lanesUi.find({ text: /4 total/ })).toBeDefined()
+    expect(await lanesUi.find({ text: /4 Total/ })).toBeDefined()
     expect(await lanesUi.find({ text: /━/ })).toBeDefined()
     await lanesUi.unmount()
   }
@@ -356,28 +303,32 @@ test('the server-side advisor is read from assistant rows: consulting, then on c
       .catch(() => undefined) // the test has no transcript to store rows in
   await row([{ type: 'server_tool_use', id: 'srv1', name: 'advisor', input: {} }])
   const mid = await $.ui.mount({ ...pane(64), surface: 'terminal' })
-  expect(await mid.find({ text: /ARCHITECT · advising/ })).toBeDefined()
+  expect(await mid.find({ text: /ARCHITECT · Advising/ })).toBeDefined()
   expect(await mid.find({ text: /◆ before a plan/ })).toBeDefined()
   await mid.unmount()
 
   await row([{ type: 'advisor_tool_result', tool_use_id: 'srv1', content: { type: 'advisor_redacted_result' } }])
   const after = await $.ui.mount({ ...pane(64), surface: 'terminal' })
-  expect(await after.find({ text: /ARCHITECT · on call/ })).toBeDefined()
+  expect(await after.find({ text: /ARCHITECT · On call/ })).toBeDefined()
   expect(await after.find({ text: /^1$/ })).toBeDefined()
   await after.unmount()
 })
 
-test('the gate strip fills from checks and a row opens its redacted drill-down', async ($, on) => {
+test('a card click opens the detail pane: every tool call masked, the full answer', async ($, on) => {
   engine(on)
-  on('tool.check', (_$, e) => ({ decision: e.tool === 'Read' ? 'allow' : 'ask' }))
-  await $.tool.check({ tool: 'Read', input: { file_path: '/a/b.ts' }, tool_use_id: 'k1' })
-  await $.tool.check({ tool: 'Bash', input: { command: 'curl -H "Authorization: Bearer abcdefgh12345" api' }, tool_use_id: 'k2' })
+  on('agent.spawn', () => ({ model: 'claude-sonnet-5-5', agentId: 'dt1' }))
+  on('tool.call', () => ({ result: {}, text: 'ok' }))
+  await $.turn.start({ text: 'audit it', turnId: 'D1' })
+  await $.agent.spawn(spawn('Explore', 'Audit the secrets'))
+  await $.tool.call({ tool: 'Bash', command: 'curl -H "Authorization: Bearer abcdefgh12345" api', agentId: 'dt1', tool_use_id: 'dk1' } as never)
+  await $.turn.complete({ answer: 'Line one\nLine two', durationMs: 5, isAborted: false, turnId: 'D1x', agentId: 'dt1', reason: 'answer' })
   const ui = await $.ui.mount({ ...pane(64), surface: 'terminal' })
-  expect(await ui.find({ text: /2 checks/ })).toBeDefined()
-  expect(await ui.find({ text: /1 pending/ })).toBeDefined()
-  await ui.press({ key: 'gate-shell' })
-  expect(await ui.find({ text: /Authorization: Bearer •••/ })).toBeDefined()
-  expect(await ui.find({ text: /abcdefgh12345/ })).toBeUndefined()
+  await ui.press({ key: 'card-dt1' })
+  const detail = await $.ui.mount({ ...pane(64), requestId: 'flightdeck-agent', surface: 'terminal' })
+  expect(await detail.find({ text: /Authorization: Bearer •••/ })).toBeDefined()
+  expect(await detail.find({ text: /abcdefgh12345/ })).toBeUndefined()
+  expect(await detail.find({ text: /Line two/ })).toBeDefined()
+  await detail.unmount()
   await ui.unmount()
 })
 
@@ -388,8 +339,7 @@ test('config changes labels, hides panels and turns the moments off', { options:
   await $.turn.start({ text: 'review it', turnId: 'T3' })
   await $.agent.spawn(spawn('fable-advisor:fable-advisor', 'final review'))
   const ui = await $.ui.mount({ ...pane(64), surface: 'terminal' })
-  expect(await ui.find({ text: /REVIEWER · advising/ })).toBeDefined()
-  expect(await ui.find({ text: /permissions/ })).toBeUndefined()
+  expect(await ui.find({ text: /REVIEWER · Advising/ })).toBeDefined()
   expect(await ui.find({ text: /before a plan/ })).toBeUndefined()
   await ui.unmount()
 })
@@ -416,7 +366,7 @@ test('a consult whose start and result share one row closes, and its review flag
     })
     .catch(() => undefined)
   const ui = await $.ui.mount({ ...pane(64), surface: 'terminal' })
-  expect(await ui.find({ text: /ARCHITECT · on call/ })).toBeDefined()
+  expect(await ui.find({ text: /ARCHITECT · On call/ })).toBeDefined()
   expect(await ui.find({ text: /◆ before done/ })).toBeDefined()
   expect(await ui.find({ text: /reviewing before done/ })).toBeUndefined()
   await ui.unmount()

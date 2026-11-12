@@ -1,10 +1,9 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
-import type { AgentCard, Architect, Bucket, Check, Gate, Layout, LogLine, Loop, Main, Roster, Turn, Usage, View } from '../types'
+import type { AgentCard, Architect, Layout, LogLine, Loop, Main, Roster, Turn, Usage, View } from '../types'
 import {
   DEFAULT_ARCHITECT,
-  DEFAULT_GATE,
   DEFAULT_MAIN,
   DEFAULT_ROSTER,
   DEFAULT_TURN,
@@ -14,7 +13,7 @@ import {
   SCHEMA_VERSION,
   afterCall,
   applyStep,
-  bucketOf,
+  cap,
   cardTitle,
   titleLines,
   consultTimeline,
@@ -26,7 +25,6 @@ import {
   fmtTimer,
   fmtUsd,
   plural,
-  gateSummary,
   gauge,
   isAdvising,
   isLoopActive,
@@ -38,7 +36,6 @@ import {
   momentOf,
   normalize,
   normalizeCard,
-  normalizeGate,
   normalizeLog,
   noteTool,
   PALETTES,
@@ -49,20 +46,20 @@ import {
   handbackOf,
   jevAlternates,
   jevEffortCells,
-  jevOutcome,
   jevPanelRows,
+  jevState,
   normalizeJev,
+  normalizeSticky,
   adviceLine,
   receiptOf,
-  recordCheck,
-  settleCheck,
   shorten,
   startConsult,
   stepLoop,
 } from './core'
-import type { Config, JevRun, Panel } from './core'
+import type { Config, JevRun, JevSticky, Panel } from './core'
 
 const PANE = 'flightdeck'
+const AGENT_PANE = 'flightdeck-agent'
 const TITLE = 'Flightdeck'
 const PANE_COLUMNS = 66
 
@@ -73,7 +70,6 @@ const meta = atom({ plugin: 'flightdeck', key: 'meta' } as const, { schemaVersio
 const main = atom({ plugin: 'flightdeck', key: 'main' } as const, DEFAULT_MAIN)
 const usage = atom({ plugin: 'flightdeck', key: 'usage' } as const, DEFAULT_USAGE)
 const architect = atom({ plugin: 'flightdeck', key: 'architect' } as const, DEFAULT_ARCHITECT)
-const gate = atom({ plugin: 'flightdeck', key: 'gate' } as const, DEFAULT_GATE)
 const agents = atom({ plugin: 'flightdeck', key: 'agents' } as const, [])
 const loops = atom({ plugin: 'flightdeck', key: 'loops' } as const, [])
 const log = atom({ plugin: 'flightdeck', key: 'log' } as const, [])
@@ -94,9 +90,6 @@ async function getUsage($: EngineInterface): Promise<Usage> {
 async function getArchitect($: EngineInterface): Promise<Architect> {
   const a = normalize(DEFAULT_ARCHITECT, await read($, architect))
   return { ...a, consults: listOf(a.consults), ids: listOf(a.ids), seen: listOf(a.seen) }
-}
-async function getGate($: EngineInterface): Promise<Gate> {
-  return normalizeGate(await read($, gate))
 }
 async function getCards($: EngineInterface): Promise<AgentCard[]> {
   return listOf<unknown>(await read($, agents)).map(normalizeCard)
@@ -123,6 +116,15 @@ async function getJev($: EngineInterface): Promise<JevRun | null> {
     return null
   }
 }
+// jev-router's sticky model: what it last chose, and whether /model switched the session to it.
+async function getSticky($: EngineInterface): Promise<JevSticky | null> {
+  try {
+    const { value } = await $.state.get({ plugin: 'jev-router', key: 'sticky' } as never)
+    return normalizeSticky(value)
+  } catch {
+    return null
+  }
+}
 async function getRoster($: EngineInterface): Promise<Roster> {
   const r = normalize(DEFAULT_ROSTER, await read($, roster))
   return { architectTypes: listOf(r.architectTypes) }
@@ -134,7 +136,6 @@ async function migrate($: EngineInterface) {
   if ((m?.schemaVersion ?? 0) >= SCHEMA_VERSION) return
   await update($, log, list => normalizeLog(list))
   await update($, agents, list => listOf<unknown>(list).map(normalizeCard))
-  await update($, gate, g => normalizeGate(g))
   await update($, meta, () => ({ schemaVersion: SCHEMA_VERSION }))
 }
 
@@ -145,14 +146,12 @@ async function say($: EngineInterface, who: string, text: string, kind: LogLine[
 
 async function refreshStatus($: EngineInterface, cfg: Config) {
   if (!cfg.statusLine) return $.ui.status(undefined)
-  const [u, a, g, cards] = await Promise.all([getUsage($), getArchitect($), getGate($), getCards($)])
+  const [u, a, cards] = await Promise.all([getUsage($), getArchitect($), getCards($)])
   const running = cards.filter(c => c.status === 'running').length
-  const s = gateSummary(g)
   const parts = [
     u.pct !== null ? `ctx ${Math.round(u.pct)}%` : null,
     cards.length > 0 ? `agents ${running}/${cards.length}` : null,
     a.consults.length > 0 || a.ids.length > 0 ? `${cfg.architectLabel.toLowerCase()} ${isAdvising(a) ? 'advising' : a.consults.length}` : null,
-    s.deny > 0 ? `denied ${s.deny}` : null,
   ]
   // Only fields with something to say; with none, no status entry at all.
   const shown = parts.filter(Boolean)
@@ -202,7 +201,6 @@ async function openPane($: EngineInterface) {
 async function resetAll($: EngineInterface) {
   await update($, main, m => ({ ...DEFAULT_MAIN, model: normalize(DEFAULT_MAIN, m).model, mode: normalize(DEFAULT_MAIN, m).mode }))
   await update($, architect, () => DEFAULT_ARCHITECT)
-  await update($, gate, () => DEFAULT_GATE)
   await update($, agents, () => [])
   await update($, loops, () => [])
   await update($, log, () => [])
@@ -228,8 +226,6 @@ async function noteMode($: EngineInterface, mode: string | undefined) {
 export const register: Register = (on, options) => {
   const cfg = parseConfig(options)
   const C = PALETTES[cfg.palette]
-  // tool.check carries no loop id; the tool.call around it does, keyed by the call's id.
-  const callLoop = new Map<string, string | null>()
 
   on('session.start', async ($, e, next) => {
     await $.command.register({
@@ -283,7 +279,7 @@ export const register: Register = (on, options) => {
     }
     const opened = await openPane($)
     if (!opened.isPlaced) return { text: `Flightdeck is not shown yet: ${opened.reason}` }
-    return { text: 'Flightdeck opened. Focus it with ctrl+x tab; 1-6 expand cards, f/s/o open the gate rows.' }
+    return { text: 'Flightdeck opened. Focus it with ctrl+x tab; 1-6 expand cards, click a card for its detail.' }
   })
 
   on('classic.UserPromptSubmit', async ($, e, next) => {
@@ -369,36 +365,18 @@ export const register: Register = (on, options) => {
     return done
   })
 
+  // A refused call is logged; allowed calls leave no trace here, and the panels show only what ran.
   on('tool.check', async ($, e, next) => {
     const verdict = await next(e)
-    if (e.tool_use_id) {
-      const check: Check = {
-        id: e.tool_use_id,
-        tool: e.tool,
-        bucket: bucketOf(e.tool),
-        verdict: verdict.decision === 'allow' ? 'rule' : verdict.decision,
-        inSubagent: Boolean(callLoop.get(e.tool_use_id)),
-        detail: shorten(describeInput(e.tool, e.input), 90),
-        at: await $.clock.now(),
-      }
-      await update($, gate, g => recordCheck(normalizeGate(g), check))
-      // The status line updates when the call settles; only a refusal ends here.
-      if (verdict.decision === 'deny') {
-        await say($, 'gate', `denied by rule · ${check.detail}`, 'error')
-        await refreshStatus($, cfg)
-      }
+    if (verdict.decision === 'deny') {
+      await say($, 'permission', `denied by rule · ${shorten(describeInput(e.tool, e.input), 90)}`, 'error')
     }
     return verdict
   })
 
   on('tool.call', async ($, e, next) => {
-    callLoop.set(e.tool_use_id, e.agentId ?? null)
-    const ran = await next(e).finally(() => callLoop.delete(e.tool_use_id))
+    const ran = await next(e)
     const didRun = ran.deny === undefined
-    // Settle this call's pending ask, if it had one; skip the write (and the redraw) otherwise.
-    const g0 = await getGate($)
-    const isSettled = settleCheck(g0, e.tool_use_id, didRun) !== g0
-    if (isSettled) await update($, gate, g => settleCheck(normalizeGate(g), e.tool_use_id, didRun))
     // A background agent hands its report back through this tool; an architect's report is its advice.
     if (String(e.tool) === 'SubagentHandback') {
       const message = (e as unknown as { message?: unknown }).message
@@ -409,30 +387,27 @@ export const register: Register = (on, options) => {
       }
       return ran
     }
-    if (e.tool === 'Agent') {
-      if (isSettled) await refreshStatus($, cfg)
-      return ran
-    }
+    if (e.tool === 'Agent') return ran
     const hasFailed = didRun && ran.isError === true
     const isEdit = !hasFailed && didRun && EDIT_TOOLS.has(e.tool)
     const t0 = await getTurn($)
     if (isEdit || hasFailed || (!e.agentId && t0.errorStreak > 0)) {
       await update($, turn, t => afterCall(normalize(DEFAULT_TURN, t), { inSubagent: Boolean(e.agentId), hasFailed, isEdit }))
     }
-    const text = shorten(describeInput(e.tool, e), 64)
+    const full = describeInput(e.tool, e)
+    const text = shorten(full, 64)
     if (e.agentId) {
       const id = e.agentId
       await update($, agents, list =>
         listOf<unknown>(list)
           .map(normalizeCard)
-          .map(c => (c.id === id ? noteTool(c, { tool: e.tool, text, isError: hasFailed || ran.deny !== undefined }) : c)),
+          .map(c => (c.id === id ? noteTool(c, { tool: e.tool, text: shorten(full, 160), isError: hasFailed || ran.deny !== undefined }) : c)),
       )
     }
     // The log keeps what is worth a glance: refusals, errors and edits; the rest is on the cards.
     if (ran.deny !== undefined) await say($, await whoIs($, e.agentId), `${text}  denied`, 'error', e.agentId ?? null)
     else if (hasFailed) await say($, await whoIs($, e.agentId), `${text}  ✗`, 'error', e.agentId ?? null)
     else if (isEdit) await say($, await whoIs($, e.agentId), text, 'info', e.agentId ?? null)
-    if (isSettled || !didRun) await refreshStatus($, cfg)
     return ran
   })
 
@@ -518,7 +493,7 @@ export const register: Register = (on, options) => {
       await update($, agents, list =>
         listOf<unknown>(list)
           .map(normalizeCard)
-          .map(c => (c.id === id ? { ...c, status, endedAt: now, answer: shorten(e.answer, 400) } : c)),
+          .map(c => (c.id === id ? { ...c, status, endedAt: now, answer: e.answer.slice(0, 4000) } : c)),
       )
       const card = cards.find(c => c.id === id)
       const took = card ? fmtDuration(now - card.spawnedAt) : ''
@@ -536,11 +511,10 @@ export const register: Register = (on, options) => {
     const els = $.ui.resolve(e)
     const { Box, Text, Button } = els
     const hasClient = 'Client' in els
-    const [m, u, a, g, cards, lp, lines, t, r, v, jv, now] = await Promise.all([
+    const [m, u, a, cards, lp, lines, t, r, v, jv, js, now] = await Promise.all([
       getMain($),
       getUsage($),
       getArchitect($),
-      getGate($),
       getCards($),
       getLoops($),
       getLog($),
@@ -548,6 +522,7 @@ export const register: Register = (on, options) => {
       read($, receipt),
       getView($),
       getJev($),
+      getSticky($),
       $.clock.now(),
     ])
     const W = Math.max(40, e.props.bodyColumns)
@@ -564,7 +539,6 @@ export const register: Register = (on, options) => {
     const isEmpty: Record<Panel, boolean> = {
       main: false,
       architect: !showArchitect,
-      gate: g.recent.length === 0 && gateSummary(g).total === 0,
       agents: cards.length === 0,
       loops: lp.length === 0,
       receipt: !m.isRunning && !r,
@@ -572,7 +546,6 @@ export const register: Register = (on, options) => {
       jev: !jv,
     }
     const panels = cfg.panels.filter(p => !isEmpty[p])
-    const decider = m.mode === 'auto' ? 'classifier' : 'you'
 
     // A connector between panels: animated while its flow is live, a dim line otherwise.
     const rail = (key: string, active: boolean, color: string, width: number, marks: number[] = [], isMerge = false) =>
@@ -605,22 +578,22 @@ export const register: Register = (on, options) => {
       <Box flexDirection="column" borderStyle="round" borderColor={C.main} paddingX={1} width={w}>
         <Box justifyContent="space-between">
           <Text color={C.main} bold>
-            {modelName} · main
+            {modelName} · Main
           </Text>
-          <Text color={m.isRunning ? C.main : C.dim}>{m.isRunning ? '● working' : '○ idle'}</Text>
+          <Text color={m.isRunning ? C.main : C.dim}>{m.isRunning ? '● Working' : '○ Idle'}</Text>
         </Box>
         <Text wrap="truncate">
-          <Text dimColor>effort </Text>
+          <Text dimColor>Effort </Text>
           <Text color={C.main}>{'▮'.repeat(effortN) + '▯'.repeat(4 - effortN)} </Text>
           <Text color={C.main} bold>
             {m.effort || '—'}
           </Text>
-          {m.mode ? <Text dimColor>{`   mode ${m.mode}`}</Text> : null}
-          <Text dimColor>{`   ${m.steps} req`}</Text>
+          {m.mode ? <Text dimColor>{`   Mode ${m.mode}`}</Text> : null}
+          <Text dimColor>{`   ${m.steps} Req`}</Text>
         </Text>
         {ctxGauge ? (
           <Text wrap="truncate">
-            <Text dimColor>ctx </Text>
+            <Text dimColor>Ctx </Text>
             <Text color={u.pct !== null && u.pct >= 80 ? C.warn : C.main}>{ctxGauge.on}</Text>
             <Text color={C.faint}>{ctxGauge.off}</Text>
             <Text bold>{` ${Math.round(u.pct ?? 0)}%`}</Text>
@@ -655,10 +628,10 @@ export const register: Register = (on, options) => {
         <Box flexDirection="column" borderStyle="round" borderColor={C.arch} paddingX={1} width={w}>
           <Box justifyContent="space-between">
             <Text color={C.arch} bold>
-              {cfg.architectLabel} · {advising ? 'advising' : 'on call'}
+              {cfg.architectLabel} · {advising ? 'Advising' : 'On call'}
             </Text>
             <Text>
-              <Text dimColor>consults </Text>
+              <Text dimColor>Consults </Text>
               <Text color={C.arch} bold>
                 {a.consults.length}
               </Text>
@@ -668,11 +641,11 @@ export const register: Register = (on, options) => {
           {lastConsult ? (
             <Text dimColor wrap="truncate">
               {advising
-                ? `consulting since ${fmtClock(lastConsult.at)}`
-                : `last ${fmtDuration(now - (lastConsult.endAt ?? lastConsult.at))} ago · took ${fmtDuration((lastConsult.endAt ?? now) - lastConsult.at)}`}
+                ? `Consulting since ${fmtClock(lastConsult.at)}`
+                : `Last ${fmtDuration(now - (lastConsult.endAt ?? lastConsult.at))} ago · Took ${fmtDuration((lastConsult.endAt ?? now) - lastConsult.at)}`}
             </Text>
           ) : (
-            <Text dimColor>not consulted yet</Text>
+            <Text dimColor>Not consulted yet</Text>
           )}
           {cfg.moments ? (
             <Box flexWrap="wrap" columnGap={2}>
@@ -684,7 +657,7 @@ export const register: Register = (on, options) => {
                   </Text>
                 )
               })}
-              <Text color={C.faint}>(inferred)</Text>
+              <Text color={C.faint}>(Inferred)</Text>
             </Box>
           ) : null}
           {a.lastAdvice ? (
@@ -696,75 +669,16 @@ export const register: Register = (on, options) => {
       )
     }
 
-    // ---- gate
-    const s = gateSummary(g)
-    const verdictColor = (c: Check) =>
-      c.verdict === 'rule' ? C.gate : c.verdict === 'cleared' ? C.cleared : c.verdict === 'ask' ? C.amber : C.warn
-    const gatePanel = (w: number) => {
-      const strip = g.recent.slice(-Math.max(8, w - 4))
-      const open = v.gateOpen
-      return (
-        <Box flexDirection="column" borderStyle="round" borderColor={C.gate} paddingX={1} width={w}>
-          <Box justifyContent="space-between">
-            <Text color={C.gate} bold>
-              {cfg.gateLabel} · permissions
-            </Text>
-            <Text dimColor>{`${s.total} checks`}</Text>
-          </Box>
-          <Box>
-            {strip.length === 0 ? <Text color={C.faint}>no checks yet</Text> : null}
-            {strip.map(c => (
-              <Text color={verdictColor(c)} dimColor={c.inSubagent}>
-                {c.verdict === 'deny' ? '✗' : '■'}
-              </Text>
-            ))}
-          </Box>
-          <Text wrap="truncate">
-            <Text color={C.gate}>■</Text>
-            <Text dimColor>{` ${s.rule} allowed  `}</Text>
-            <Text color={C.cleared}>■</Text>
-            <Text dimColor>{` ${s.cleared} ${decider}  `}</Text>
-            {s.ask > 0 ? <Text color={C.amber}>{`■ ${s.ask} pending  `}</Text> : null}
-            <Text color={s.deny > 0 ? C.warn : C.dim}>{`✗ ${s.deny} denied`}</Text>
-            {w >= 80 && g.recent.some(c => c.inSubagent) ? <Text color={C.faint}>{'  dim: in subagents'}</Text> : null}
-          </Text>
-          <Box columnGap={2}>
-            {(['file', 'shell', 'other'] as const).map((b: Bucket) => {
-              const tl = g.totals[b]
-              const n = tl.rule + tl.ask + tl.cleared + tl.deny
-              return (
-                <Button
-                  key={`gate-${b}`}
-                  plain
-                  hotkey={b[0]}
-                  label={`${b} ${n}${open === b ? ' ▾' : ''}`}
-                  dimColor={n === 0}
-                  onPress={() => update($, view, x => ({ ...normalize(DEFAULT_VIEW, x), gateOpen: normalize(DEFAULT_VIEW, x).gateOpen === b ? null : b }))}
-                />
-              )
-            })}
-          </Box>
-          {open
-            ? g.recent
-                .filter(c => c.bucket === open)
-                .slice(-5)
-                .map(c => (
-                  <Text wrap="truncate">
-                    <Text color={verdictColor(c)}>{c.verdict === 'deny' ? '✗ ' : '■ '}</Text>
-                    <Text color={C.dim}>{`${(c.verdict === 'rule' ? 'allowed' : c.verdict === 'cleared' ? decider : c.verdict === 'ask' ? 'pending' : 'denied').padEnd(10)} `}</Text>
-                    <Text dimColor={c.inSubagent}>{shorten(c.detail, Math.max(10, w - 18))}</Text>
-                  </Text>
-                ))
-            : null}
-        </Box>
-      )
-    }
-
     // ---- agents: cards up to the limit, swimlanes beyond it
-    const statusColor = (c: AgentCard) => (c.status === 'failed' ? C.warn : c.status === 'done' ? C.gate : C.agent)
+    const statusColor = (c: AgentCard) => (c.status === 'failed' ? C.warn : c.status === 'done' ? C.ok : C.agent)
     const glyph = (c: AgentCard) => (c.status === 'running' ? '◐' : c.status === 'done' ? '✓' : c.status === 'failed' ? '✗' : '■')
-    const expandOnPress = (id: string) => () =>
-      update($, view, x => ({ ...normalize(DEFAULT_VIEW, x), expanded: normalize(DEFAULT_VIEW, x).expanded === id ? null : id }))
+    // A click on a card expands it in place and opens its detail pane; a second click on the same card closes both.
+    const selectOnPress = (id: string) => async () => {
+      const closing = normalize(DEFAULT_VIEW, await read($, view)).expanded === id
+      await update($, view, x => ({ ...normalize(DEFAULT_VIEW, x), expanded: closing ? null : id, detail: closing ? null : id }))
+      if (closing) await $.ui.close({ id: AGENT_PANE })
+      else await $.ui.open({ id: AGENT_PANE, title: 'Agent', closeOnEscape: true })
+    }
 
     const agentsPanel = (w: number) => {
       // Cards need 20 columns each; when the pane can't hold the limit, lanes take over.
@@ -772,15 +686,15 @@ export const register: Register = (on, options) => {
       const useLanes = cards.length > fit
       const header = (
         <Box justifyContent="space-between" width={w}>
-          <Text bold>{`agents · ${running.length} running · ${cards.length} total`}</Text>
-          {cards.length > 0 ? <Text color={C.faint}>1-{Math.min(cards.length, useLanes ? 6 : fit)} expand</Text> : null}
+          <Text bold>{`Agents · ${running.length} Running · ${cards.length} Total`}</Text>
+          {cards.length > 0 ? <Text color={C.faint}>{`1-${Math.min(cards.length, useLanes ? 6 : fit)} Expand`}</Text> : null}
         </Box>
       )
       if (cards.length === 0) {
         return (
           <Box flexDirection="column" width={w}>
             {header}
-            <Text color={C.faint}>no subagents yet</Text>
+            <Text color={C.faint}>No subagents yet</Text>
           </Box>
         )
       }
@@ -791,7 +705,7 @@ export const register: Register = (on, options) => {
         return (
           <Box flexDirection="column" width={w}>
             {header}
-            {cards.length > shown.length ? <Text color={C.faint}>{`+${cards.length - shown.length} earlier`}</Text> : null}
+            {cards.length > shown.length ? <Text color={C.faint}>{`+${cards.length - shown.length} Earlier`}</Text> : null}
             {shown.map((c, i) => {
               const gm = geo[i]
               const isViewed = viewed === c.id
@@ -799,7 +713,7 @@ export const register: Register = (on, options) => {
                 <Box>
                   <Text color={statusColor(c)} bold={isViewed}>{`${isViewed ? '▶' : glyph(c)} `}</Text>
                   <Box width={17}>
-                    <Button key={`card-${c.id}`} plain hotkey={String(i + 1)} label={shorten(cardTitle(c), 14)} onPress={expandOnPress(c.id)} />
+                    <Button key={`card-${c.id}`} plain hotkey={String(i + 1)} label={shorten(cardTitle(c), 14)} onPress={selectOnPress(c.id)} />
                   </Box>
                   <Text color={C.faint}>{' ' + '·'.repeat(gm?.before ?? 0)}</Text>
                   <Text color={statusColor(c)}>{'━'.repeat(gm?.bar ?? 1)}</Text>
@@ -831,7 +745,7 @@ export const register: Register = (on, options) => {
                   width={cardW}
                   paddingX={1}
                 >
-                  <Button key={`card-${c.id}`} plain hotkey={String(i + 1)} label={titleLines(cardTitle(c), cardW - 7, cardW - 4)[0]} onPress={expandOnPress(c.id)} />
+                  <Button key={`card-${c.id}`} plain hotkey={String(i + 1)} label={titleLines(cardTitle(c), cardW - 7, cardW - 4)[0]} onPress={selectOnPress(c.id)} />
                   <Text bold wrap="truncate">
                     {titleLines(cardTitle(c), cardW - 7, cardW - 4)[1]}
                   </Text>
@@ -839,11 +753,11 @@ export const register: Register = (on, options) => {
                     {sameModel ? c.type : `${c.type} · ${prettyModel(c.model)}`}
                   </Text>
                   <Text dimColor wrap="truncate">
-                    {c.steps > 0 ? `ctx ${kTokens(c.ctx)} · out ${kTokens(c.out)} · ${c.steps} st` : 'starting…'}
+                    {c.steps > 0 ? `Ctx ${kTokens(c.ctx)} · Out ${kTokens(c.out)} · ${c.steps} St` : 'Starting…'}
                   </Text>
                   <Box>
                     <Text color={c.lastStop === 'max_tokens' ? C.warn : statusColor(c)}>
-                      {cardW >= 26 ? `${glyph(c)} ${c.lastStop === 'max_tokens' ? 'max_tokens' : c.status} ` : `${glyph(c)} `}
+                      {cardW >= 26 ? `${glyph(c)} ${c.lastStop === 'max_tokens' ? 'max_tokens' : cap(c.status)} ` : `${glyph(c)} `}
                     </Text>
                     <Box flexShrink={0}>{clock(`card-clock-${c.id}`, c.spawnedAt, c.endedAt, C.dim)}</Box>
                   </Box>
@@ -863,9 +777,9 @@ export const register: Register = (on, options) => {
           <Text bold wrap="wrap">
             {expandedCard.description || expandedCard.type}
           </Text>
-          <Text dimColor wrap="truncate">{`${expandedCard.type} · ${prettyModel(expandedCard.model)} · ${expandedCard.status} · ${expandedCard.steps} steps`}</Text>
-          {expandedCard.tools.length === 0 ? <Text color={C.faint}>no tool calls yet</Text> : null}
-          {expandedCard.tools.map(n => (
+          <Text dimColor wrap="truncate">{`${expandedCard.type} · ${prettyModel(expandedCard.model)} · ${cap(expandedCard.status)} · ${plural(expandedCard.steps, 'step')}`}</Text>
+          {expandedCard.tools.length === 0 ? <Text color={C.faint}>No tool calls yet</Text> : null}
+          {expandedCard.tools.slice(-3).map(n => (
             <Text color={n.isError ? C.warn : C.text} wrap="truncate">
               {`${n.isError ? '✗' : '·'} ${n.text}`}
             </Text>
@@ -885,8 +799,8 @@ export const register: Register = (on, options) => {
       const dots = lp.slice(-Math.max(4, w - 38))
       return (
         <Box width={w}>
-          <Text bold>other loops </Text>
-          <Text dimColor>{`${lp.length} seen · ${active} active  `}</Text>
+          <Text bold>Other loops </Text>
+          <Text dimColor>{`${lp.length} Seen · ${active} Active  `}</Text>
           {dots.map(l => (
             <Text color={isLoopActive(l, now) ? C.agent : l.isDone ? C.dim : C.faint}>{isLoopActive(l, now) ? '●' : l.isDone ? '✓' : '○'}</Text>
           ))}
@@ -901,35 +815,35 @@ export const register: Register = (on, options) => {
         <Box flexDirection="column" borderStyle="round" borderColor={C.main} borderDimColor={!m.isRunning && !isReview} paddingX={1} width={w}>
           {m.isRunning ? (
             <Box>
-              <Text color={C.main} wrap="truncate">{`◐ back to ${modelName.toLowerCase()} · turn `}</Text>
+              <Text color={C.main} wrap="truncate">{`◐ Back to ${modelName} · Turn `}</Text>
               <Box flexShrink={0}>{clock('turn-clock', t.startedAt, null, C.main)}</Box>
               {w >= 60 ? <Text dimColor wrap="truncate">{` · ${plural(t.edits, 'edit')} · ${plural(t.errors, 'error')}`}</Text> : null}
             </Box>
           ) : r ? (
             <Text wrap="truncate">
-              <Text color={r.reason === 'answer' ? C.gate : C.warn}>{r.reason === 'answer' ? '✓ ' : '✗ '}</Text>
-              <Text>{`last turn ${fmtDuration(r.durationMs)} · ${plural(r.agents, 'agent')} · ${plural(r.edits, 'edit')} · ${plural(r.errors, 'error')}`}</Text>
+              <Text color={r.reason === 'answer' ? C.ok : C.warn}>{r.reason === 'answer' ? '✓ ' : '✗ '}</Text>
+              <Text>{`Last turn ${fmtDuration(r.durationMs)} · ${plural(r.agents, 'agent')} · ${plural(r.edits, 'edit')} · ${plural(r.errors, 'error')}`}</Text>
               {r.costDelta !== null ? <Text color={C.main}>{` · +${fmtUsd(r.costDelta)}`}</Text> : null}
             </Text>
           ) : (
-            <Text color={C.faint}>no turn finished yet</Text>
+            <Text color={C.faint}>No turn finished yet</Text>
           )}
-          {isReview ? <Text color={C.arch}>{`${cfg.architectLabel.toLowerCase()} reviewing before done (inferred)`}</Text> : null}
+          {isReview ? <Text color={C.arch}>{`${cap(cfg.architectLabel.toLowerCase())} reviewing before done (Inferred)`}</Text> : null}
         </Box>
       )
     }
 
     // ---- log: whatever rows the other panels leave, 4 to 8
-    const used = 2 + 5 + (showArchitect ? 6 : 0) + 6 + (v.gateOpen ? 5 : 0) + (cards.length > cfg.maxCards ? 3 + Math.min(6, cards.length) : 8) + (expandedCard ? 8 : 0) + (lp.length ? 1 : 0) + 3 + (panels.includes('jev') ? jevPanelRows(jv) : 0)
+    const used = 2 + 5 + (showArchitect ? 6 : 0) + 6 + (cards.length > cfg.maxCards ? 3 + Math.min(6, cards.length) : 8) + (expandedCard ? 8 : 0) + (lp.length ? 1 : 0) + 3 + (panels.includes('jev') ? jevPanelRows(jv) : 0)
     const bodyRows = e.props.scroll?.bodyRows ?? e.viewport?.rows ?? 40
     const nLog = logRows(bodyRows, used)
     const shownLines = (viewed ? lines.filter(l => l.agentId === viewed) : lines).slice(-nLog)
     const colorOf = (l: LogLine) =>
-      l.kind === 'error' ? C.warn : l.kind === 'consult' ? C.arch : l.who === 'main' ? C.main : l.who === 'gate' ? C.gate : l.who === 'you' ? C.text : C.agent
+      l.kind === 'error' ? C.warn : l.kind === 'consult' ? C.arch : l.who === 'main' ? C.main : l.who === 'you' ? C.text : C.agent
     const logPanel = (w: number) => (
       <Box flexDirection="column" borderStyle="round" borderColor={C.faint} paddingX={1} width={w}>
-        <Text dimColor>{viewed ? 'session log · this agent' : 'session log'}</Text>
-        {shownLines.length === 0 ? <Text color={C.faint}>nothing yet</Text> : null}
+        <Text dimColor>{viewed ? 'Session log · this agent' : 'Session log'}</Text>
+        {shownLines.length === 0 ? <Text color={C.faint}>Nothing yet</Text> : null}
         {shownLines.map(l => (
           <Box>
             <Box width={9} flexShrink={0}>
@@ -937,7 +851,7 @@ export const register: Register = (on, options) => {
             </Box>
             <Box width={13} flexShrink={0}>
               <Text color={colorOf(l)} bold wrap="truncate">
-                {l.who}
+                {cap(l.who)}
               </Text>
             </Box>
             <Text color={l.kind === 'error' ? C.warn : C.text} wrap="truncate">
@@ -949,11 +863,14 @@ export const register: Register = (on, options) => {
     )
 
     // ---- jev: what /jev-last says, from jev-router's state
-    // Drawn like the main panel: a title with a state dot, then one meter row per choice with the rest beside it.
+    // A title with a state dot, the prompt, a bar saying whether Jev's decision reached the session, then one meter row per choice.
     const jevPanel = (w: number) => {
       if (!jv) return null
       const routed = jv.outcome === 'routed'
-      const confTone = (c: number | undefined) => ((c ?? 0) >= 0.85 ? C.gate : C.amber)
+      const state = jevState(jv, js)
+      const barColor = state.kind === 'applied' ? C.ok : state.kind === 'pending' ? C.amber : C.warn
+      const barLabel = state.kind === 'applied' ? '■ Applied' : state.kind === 'pending' ? '◌ Pending' : '○ Not applied'
+      const confTone = (c: number | undefined) => ((c ?? 0) >= 0.85 ? C.ok : C.amber)
       const modelAlt = jevAlternates(jv.probabilities, jv.choice)
       const effortAlt = jevAlternates(jv.effortProbabilities, jv.effortChoice)
       const effortN = jevEffortCells(jv.effortChoice)
@@ -962,16 +879,16 @@ export const register: Register = (on, options) => {
       return (
         <Box flexDirection="column" borderStyle="round" borderColor={C.jev} paddingX={1} width={w}>
           <Box justifyContent="space-between">
-            <Text color={C.jev} bold>{`jev · router`}</Text>
-            <Text color={routed ? C.jev : C.faint}>{routed ? '● routed' : '○ kept'}</Text>
+            <Text color={C.jev} bold>{`Jev · Router`}</Text>
+            <Text color={routed ? C.jev : C.faint}>{routed ? '● Routed' : '○ Kept'}</Text>
           </Box>
           <Text wrap="truncate">
             <Text dimColor>{`"${jv.prompt}"`}</Text>
           </Text>
-          <Text color={routed ? C.gate : C.amber} wrap="truncate">{jevOutcome(jv)}</Text>
+          <Text color={barColor} bold wrap="truncate">{`${barLabel} · ${state.text}`}</Text>
           {jv.probabilities ? (
             <Text wrap="truncate">
-              <Text dimColor>model </Text>
+              <Text dimColor>Model </Text>
               <Text color={C.jev} bold>{jv.choice ?? '?'}</Text>
               <Text color={confTone(jv.confidence)}>{`  ${modelGauge.on}`}</Text>
               <Text color={C.faint}>{modelGauge.off}</Text>
@@ -981,13 +898,13 @@ export const register: Register = (on, options) => {
           ) : null}
           {jv.probabilities && modelAlt.length > 0 ? (
             <Text wrap="truncate">
-              <Text dimColor>{'  other  '}</Text>
+              <Text dimColor>{'  Other  '}</Text>
               <Text color={C.dim}>{modelAlt.map(a => `${a.alias} ${a.pct}%`).join('  ·  ')}</Text>
             </Text>
           ) : null}
           {jv.effortProbabilities ? (
             <Text wrap="truncate">
-              <Text dimColor>effort </Text>
+              <Text dimColor>Effort </Text>
               <Text color={C.jev}>{'▮'.repeat(effortN) + '▯'.repeat(4 - effortN)} </Text>
               <Text color={C.jev} bold>{jv.effortChoice ?? '?'}</Text>
               <Text color={confTone(jv.effortConfidence)}>{`  ${effortGauge.on}`}</Text>
@@ -997,16 +914,11 @@ export const register: Register = (on, options) => {
           ) : null}
           {jv.effortProbabilities && effortAlt.length > 0 ? (
             <Text wrap="truncate">
-              <Text dimColor>{'  other  '}</Text>
+              <Text dimColor>{'  Other  '}</Text>
               <Text color={C.dim}>{effortAlt.map(a => `${a.alias} ${a.pct}%`).join('  ·  ')}</Text>
             </Text>
           ) : null}
-          {jv.error ? <Text color={C.warn} wrap="truncate">{`errore: ${jv.error}`}</Text> : null}
-          <Text wrap="truncate">
-            <Text color={C.faint}>{`${fmtClock(jv.at)} · ${fmtDuration(now - jv.at)} fa · ${jv.latencyMs} ms`}</Text>
-            {jv.httpStatus ? <Text color={C.faint}>{` · HTTP ${jv.httpStatus} · ${jv.jevModel}`}</Text> : null}
-            {jv.usage ? <Text color={C.faint}>{` · ${jv.usage.input_tokens ?? '?'}/${jv.usage.output_tokens ?? '?'} tok`}</Text> : null}
-          </Text>
+          {jv.error ? <Text color={C.warn} wrap="truncate">{`Errore: ${jv.error}`}</Text> : null}
         </Box>
       )
     }
@@ -1016,9 +928,7 @@ export const register: Register = (on, options) => {
         ? mainPanel(w)
         : p === 'architect'
           ? architectPanel(w)
-          : p === 'gate'
-            ? gatePanel(w)
-            : p === 'agents'
+          : p === 'agents'
               ? agentsPanel(w)
               : p === 'loops'
                 ? loopsPanel(w)
@@ -1083,8 +993,6 @@ export const register: Register = (on, options) => {
     const isMini = layout === 'mini' || (layout === 'auto' && e.props.placement === 'inline')
     if (isMini) {
       const live = [...cards.filter(c => c.status === 'running'), ...cards.filter(c => c.status !== 'running').reverse()].slice(0, 3)
-      const counts = ` ${s.rule} allowed · ${s.cleared} ${decider}${s.ask > 0 ? ` · ${s.ask} pending` : ''} · ${s.deny} denied`
-      const strip = g.recent.slice(-Math.max(4, W - cfg.gateLabel.length - 1 - counts.length))
       const mg = u.pct !== null ? gauge(u.pct, 6) : null
       return (
         <Box flexDirection="column" width={W}>
@@ -1093,27 +1001,14 @@ export const register: Register = (on, options) => {
               {modelName}
             </Text>
             <Text color={m.isRunning ? C.main : C.dim}>{m.isRunning ? ' ● working' : ' ○ idle'}</Text>
-            {mg ? <Text dimColor> · ctx </Text> : null}
+            {mg ? <Text dimColor> · Ctx </Text> : null}
             {mg ? <Text color={(u.pct ?? 0) >= 80 ? C.warn : C.main}>{mg.on}</Text> : null}
             {mg ? <Text color={C.faint}>{mg.off}</Text> : null}
             {mg ? <Text>{` ${Math.round(u.pct ?? 0)}%`}</Text> : null}
             {u.compactions > 0 ? <Text color={C.amber}>{` ⟲${u.compactions}`}</Text> : null}
             {u.costUsd !== null ? <Text dimColor>{` · ${fmtUsd(u.costUsd)}`}</Text> : null}
-            {showArchitect ? <Text color={C.arch}>{` · ${cfg.architectLabel.toLowerCase()} ${advising ? 'advising' : a.consults.length}`}</Text> : null}
+            {showArchitect ? <Text color={C.arch}>{` · ${cap(cfg.architectLabel.toLowerCase())} ${advising ? 'Advising' : a.consults.length}`}</Text> : null}
           </Text>
-          {strip.length > 0 ? (
-            <Box>
-              <Text dimColor>{`${cfg.gateLabel.toLowerCase()} `}</Text>
-              {strip.map(c => (
-                <Text color={verdictColor(c)} dimColor={c.inSubagent}>
-                  {c.verdict === 'deny' ? '✗' : '■'}
-                </Text>
-              ))}
-              <Text color={s.deny > 0 ? C.warn : s.ask > 0 ? C.amber : C.dim} wrap="truncate">
-                {counts}
-              </Text>
-            </Box>
-          ) : null}
           {live.map(c => (
             <Box>
               <Text color={statusColor(c)}>{`${glyph(c)} `}</Text>
@@ -1125,12 +1020,12 @@ export const register: Register = (on, options) => {
             </Box>
           ))}
           {cards.length > live.length ? (
-            <Text color={C.faint} wrap="truncate">{`+${cards.length - live.length} more agents · /flightdeck layout compact for all`}</Text>
+            <Text color={C.faint} wrap="truncate">{`+${cards.length - live.length} More agents · /flightdeck layout compact for all`}</Text>
           ) : null}
-          {lp.length > 0 ? <Text dimColor>{`other loops ${lp.length} · ${lp.filter(l => isLoopActive(l, now)).length} active`}</Text> : null}
+          {lp.length > 0 ? <Text dimColor>{`Other loops ${lp.length} · ${lp.filter(l => isLoopActive(l, now)).length} Active`}</Text> : null}
           {!m.isRunning && r ? (
             <Text dimColor wrap="truncate">
-              {`last turn ${fmtDuration(r.durationMs)} · ${plural(r.agents, 'agent')} · ${plural(r.edits, 'edit')} · ${plural(r.errors, 'error')}${r.costDelta !== null ? ` · +${fmtUsd(r.costDelta)}` : ''}`}
+              {`Last turn ${fmtDuration(r.durationMs)} · ${plural(r.agents, 'agent')} · ${plural(r.edits, 'edit')} · ${plural(r.errors, 'error')}${r.costDelta !== null ? ` · +${fmtUsd(r.costDelta)}` : ''}`}
             </Text>
           ) : null}
         </Box>
@@ -1139,10 +1034,9 @@ export const register: Register = (on, options) => {
 
     const legend = fitLegend(
       [
-        { label: 'main', color: C.main },
-        { label: 'agents', color: C.agent },
-        { label: cfg.gateLabel.toLowerCase(), color: C.gate },
-        ...(showArchitect ? [{ label: cfg.architectLabel.toLowerCase(), color: C.arch }] : []),
+        { label: 'Main', color: C.main },
+        { label: 'Agents', color: C.agent },
+        ...(showArchitect ? [{ label: cap(cfg.architectLabel.toLowerCase()), color: C.arch }] : []),
       ],
       W,
     )
@@ -1150,7 +1044,7 @@ export const register: Register = (on, options) => {
     const body = isWide ? (
       <Box flexDirection="column">
         <Box columnGap={2}>
-          {column(panels.filter(p => p === 'main' || p === 'architect' || p === 'gate'), colW)}
+          {column(panels.filter(p => p === 'main' || p === 'architect'), colW)}
           {column(panels.filter(p => p === 'agents' || p === 'loops' || p === 'receipt'), colW)}
         </Box>
         {panels.includes('log') ? logPanel(W) : null}
@@ -1183,6 +1077,45 @@ export const register: Register = (on, options) => {
         </Box>
         {body}
         {svgLanes}
+      </Box>
+    )
+  })
+
+  // The detail pane: everything one subagent did, opened by a click on its card. Its tool calls are the
+  // ones the card kept (up to 200, inputs masked); its answer is the report it returned.
+  on('ui.render', { component: 'Pane', requestId: AGENT_PANE }, async ($, e) => {
+    const { Box, Text } = $.ui.resolve(e)
+    const [v, cards] = await Promise.all([getView($), getCards($)])
+    const c = cards.find(x => x.id === v.detail)
+    const W = Math.max(30, e.props.bodyColumns)
+    if (!c) {
+      return (
+        <Box width={W}>
+          <Text color={C.faint}>No agent selected</Text>
+        </Box>
+      )
+    }
+    return (
+      <Box flexDirection="column" width={W}>
+        <Text bold wrap="wrap">
+          {cardTitle(c)}
+        </Text>
+        <Text dimColor wrap="truncate">
+          {`${c.type} · ${prettyModel(c.model)} · ${cap(c.status)} · ${plural(c.steps, 'step')} · Ctx ${kTokens(c.ctx)} · Out ${kTokens(c.out)}`}
+        </Text>
+        <Text bold>Tool calls</Text>
+        {c.tools.length === 0 ? <Text color={C.faint}>No tool calls yet</Text> : null}
+        {c.tools.map(n => (
+          <Text color={n.isError ? C.warn : C.text} wrap="wrap">
+            {`${n.isError ? '✗' : '·'} ${n.text}`}
+          </Text>
+        ))}
+        {c.answer ? <Text bold>Answer</Text> : null}
+        {c.answer ? (
+          <Text wrap="wrap">
+            {c.answer}
+          </Text>
+        ) : null}
       </Box>
     )
   })
