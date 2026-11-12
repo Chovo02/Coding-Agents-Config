@@ -40,7 +40,7 @@
 
 ### Commit
 Solo se lo chiedo. Stile dei miei repo: conventional commit su una riga, `tipo(scope): descrizione` in inglese,
-senza corpo né righe di attribuzione; un commit per tema. Mai `push` senza richiesta esplicita.
+senza corpo né righe di attribuzione; un commit per tema. Mai `push` senza richiesta esplicita. Non creare dei branch se non richiesti.
 
 ### Primo giorno su un repo
 cwd non mappato → proponi `cortex:ingest` → poi lavoro normale.
