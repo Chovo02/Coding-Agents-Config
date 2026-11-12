@@ -40,7 +40,10 @@
 
 ### Commit
 Solo se lo chiedo. Stile dei miei repo: conventional commit su una riga, `tipo(scope): descrizione` in inglese,
-senza corpo né righe di attribuzione; un commit per tema. Mai `push` senza richiesta esplicita. Non creare dei branch se non richiesti.
+senza corpo né righe di attribuzione; un commit per tema. Mai `push` senza richiesta esplicita.
+Branch: nei miei repo personali su GitHub non creare branch di default. Crealo solo quando il lavoro referenzia
+un'issue: il nome segue il branch suggerito da Linear o GitHub (es. `feature/mat-5-esplorazioni-di-skill`) e il
+commit cita l'issue (es. `(MAT-5)`).
 
 ### Primo giorno su un repo
 cwd non mappato → proponi `cortex:ingest` → poi lavoro normale.
