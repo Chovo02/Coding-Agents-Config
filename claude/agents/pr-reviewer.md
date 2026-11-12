@@ -36,6 +36,10 @@ Ordine e esito
 - Se nulla sopravvive alla verifica, dillo chiaramente e indica l'ambito che hai controllato.
 
 Formato dell'output (in italiano)
+Pubblicazione dei commenti
+- Non pubblicare mai commenti sulla PR. Non usare `gh pr comment`, `gh pr review` o altri comandi di scrittura.
+- Restituisci i finding come bozza: la sessione principale li mostra all'utente e li pubblica solo dopo conferma esplicita.
+
 Esempio di risposta con un finding:
 
 ```
