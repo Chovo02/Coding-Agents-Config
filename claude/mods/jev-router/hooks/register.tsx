@@ -31,43 +31,42 @@ export { MODELS }
 
 export const EFFORTS = ['low', 'medium', 'high', 'max']
 
-export const QUESTIONS = {
+type Question = { type: 'choice'; instructions: string; criteria: Record<string, string> }
+export type Questions = { modello: Question; effort: Question }
+
+// Used when prompts/questions.json is missing or malformed: routing keeps working, /jev-last says so.
+const FALLBACK_QUESTIONS: Questions = {
   modello: {
     type: 'choice',
-    instructions:
-      "Quale modello Claude conviene usare in Claude Code per eseguire questa richiesta dell'utente, " +
-      'bilanciando qualità del risultato, velocità e costo? Scegli il modello più economico che la porta a termine bene.',
-    criteria: {
-      haiku:
-        'Richieste semplici e meccaniche: domande rapide, spiegazioni brevi, rename, piccole modifiche ' +
-        'a un solo file, comandi shell banali, formattazione, ricerche puntuali nel codice.',
-      sonnet:
-        'Lavoro di sviluppo ordinario: implementare feature circoscritte, scrivere test, debug di bug ' +
-        'riproducibili, refactoring locali, modifiche su pochi file, documentazione tecnica.',
-      opus:
-        'Compiti difficili o ad alto rischio: architettura e design di sistemi, refactoring su molti moduli, ' +
-        'bug complessi o non deterministici, concorrenza, sicurezza, migrazioni di schema, ragionamento ' +
-        'lungo e ambiguo, pianificazione di task multi-step.',
-    },
+    instructions: 'Quale modello Claude conviene usare per questa richiesta dell\'utente?',
+    criteria: { haiku: 'Richieste semplici e meccaniche.', sonnet: 'Lavoro di sviluppo ordinario.', opus: 'Compiti difficili o ad alto rischio.' },
   },
   effort: {
     type: 'choice',
-    instructions:
-      "Quanto deve ragionare il modello Claude per eseguire questa richiesta dell'utente in Claude Code? " +
-      "Scegli il livello di effort più basso che porta a termine bene il compito: l'effort alto costa tempo e token.",
-    criteria: {
-      low: 'Nessun ragionamento necessario: risposte dirette, modifiche meccaniche, comandi banali, ricerche puntuali.',
-      medium:
-        'Ragionamento moderato: implementazioni circoscritte, debug di bug riproducibili, test, ' +
-        'modifiche su pochi file con requisiti chiari.',
-      high:
-        'Ragionamento approfondito: bug difficili da individuare, refactoring su più moduli, ' +
-        'scelte di design con più alternative, requisiti da interpretare.',
-      max:
-        'Ragionamento massimo: problemi molto ambigui o ad alto rischio (concorrenza, sicurezza, ' +
-        'migrazioni, architettura) dove un errore costa caro.',
-    },
+    instructions: 'Quanto deve ragionare il modello per questa richiesta dell\'utente?',
+    criteria: { low: 'Nessun ragionamento necessario.', medium: 'Ragionamento moderato.', high: 'Ragionamento approfondito.', max: 'Ragionamento massimo.' },
   },
+}
+
+function isQuestion(value: unknown): value is Question {
+  if (!value || typeof value !== 'object') return false
+  const q = value as { type?: unknown; instructions?: unknown; criteria?: unknown }
+  if (q.type !== 'choice' || typeof q.instructions !== 'string' || !q.criteria || typeof q.criteria !== 'object') return false
+  return Object.values(q.criteria).every(text => typeof text === 'string')
+}
+
+// Read on every prompt (the file is small), so an edit to prompts/questions.json applies from the next prompt.
+export async function loadQuestions($: any): Promise<{ questions: Questions; source: 'file' | 'fallback' }> {
+  try {
+    const path = `${$.plugin.root}/prompts/questions.json`
+    if (await $.fs.exists(path)) {
+      const parsed = JSON.parse(String(await $.fs.read(path)))
+      if (isQuestion(parsed?.modello) && isQuestion(parsed?.effort)) return { questions: parsed, source: 'file' }
+    }
+  } catch {
+    // Malformed JSON or unreadable file: the fallback below.
+  }
+  return { questions: FALLBACK_QUESTIONS, source: 'fallback' }
 }
 
 const route = atom({ plugin: 'jev-router', key: 'route' } as const, null as Route | null)
@@ -96,6 +95,8 @@ async function askJev($: any, text: string, timeoutMs: number): Promise<Run> {
     const key = await $.env.get('TYPESAFE_API_KEY')
     const baseUrl = ((await $.env.get('TYPESAFE_BASE_URL')) || DEFAULT_BASE_URL).replace(/\/+$/, '')
     run.jevModel = (await $.env.get('JEV_MODEL')) || DEFAULT_JEV_MODEL
+    const { questions, source } = await loadQuestions($)
+    run.promptSource = source
 
     if (key) {
       const request = $.http.fetch(`${baseUrl}/systemone`, {
@@ -104,7 +105,7 @@ async function askJev($: any, text: string, timeoutMs: number): Promise<Run> {
         body: JSON.stringify({
           model: run.jevModel,
           state: { richiesta: text.slice(0, MAX_PROMPT_CHARS) },
-          questions: QUESTIONS,
+          questions,
         }),
       })
       const timeout = $.clock.sleep(timeoutMs).then(() => undefined)
@@ -214,6 +215,7 @@ export function formatRun(run: Run | null, now: number, pinned?: Sticky | null) 
   if (run.contextTokens) lines.push(`Contesto: ${Math.round(run.contextTokens / 1000)}k token`)
   if (run.httpStatus) lines.push(`HTTP ${run.httpStatus} · modello Jev ${run.jevModel}`)
   if (run.error) lines.push(`Errore: ${run.error}`)
+  if (run.promptSource === 'fallback') lines.push('Domande Jev: fallback (prompts/questions.json mancante o non valido)')
 
   pushProbabilities(lines, 'Modello', run.choice, run.confidence, run.probabilities, alias => MODELS[alias])
   pushProbabilities(lines, 'Effort', run.effortChoice, run.effortConfidence, run.effortProbabilities)

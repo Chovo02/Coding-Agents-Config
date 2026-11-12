@@ -1,0 +1,21 @@
+{
+  "modello": {
+    "type": "choice",
+    "instructions": "Quale modello Claude conviene usare in Claude Code per eseguire questa richiesta dell'utente, bilanciando qualità del risultato, velocità e costo? Scegli il modello più economico che la porta a termine bene.",
+    "criteria": {
+      "haiku": "Richieste semplici e meccaniche: domande rapide, spiegazioni brevi, rename, piccole modifiche a un solo file, comandi shell banali, formattazione, ricerche puntuali nel codice.",
+      "sonnet": "Lavoro di sviluppo ordinario: implementare feature circoscritte, scrivere test, debug di bug riproducibili, refactoring locali, modifiche su pochi file, documentazione tecnica.",
+      "opus": "Compiti difficili o ad alto rischio: architettura e design di sistemi, refactoring su molti moduli, bug complessi o non deterministici, concorrenza, sicurezza, migrazioni di schema, ragionamento lungo e ambiguo, pianificazione di task multi-step."
+    }
+  },
+  "effort": {
+    "type": "choice",
+    "instructions": "Quanto deve ragionare il modello Claude per eseguire questa richiesta dell'utente in Claude Code? Scegli il livello di effort più basso che porta a termine bene il compito: l'effort alto costa tempo e token.",
+    "criteria": {
+      "low": "Nessun ragionamento necessario: risposte dirette, modifiche meccaniche, comandi banali, ricerche puntuali.",
+      "medium": "Ragionamento moderato: implementazioni circoscritte, debug di bug riproducibili, test, modifiche su pochi file con requisiti chiari.",
+      "high": "Ragionamento approfondito: bug difficili da individuare, refactoring su più moduli, scelte di design con più alternative, requisiti da interpretare.",
+      "max": "Ragionamento massimo: problemi molto ambigui o ad alto rischio (concorrenza, sicurezza, migrazioni, architettura) dove un errore costa caro."
+    }
+  }
+}

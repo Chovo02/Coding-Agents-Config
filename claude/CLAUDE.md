@@ -48,8 +48,13 @@ Quando lavoro in Plan mode, prima di presentare il piano valuto la complessità 
   2–4 opzioni, la mia raccomandazione per prima con "(Recommended)" nel label, una domanda alla volta.
 - Il piano va presentato in Plan mode solo dopo che il grill ha risolto l'albero delle decisioni.
 
-### Chiusura issue
-Non chiudo mai un'issue Linear a mano via MCP. Quando ti dico che l'issue è chiusa, puoi fare merge su `main` e push: così Linear e GitHub si aggiornano dal merge stesso. Prima di merge e push, controlla che il branch sia quello dell'issue e che i test passino.
+### Issue Linear → PR
+Non chiudo mai un'issue Linear a mano via MCP. Flusso per ogni issue che risolvo:
+1. Branch: uso il `gitBranchName` assegnato da Linear (es. `feature/mat-6-comportamento-durante-il-plan`).
+2. Commit: un commit per tema, con `(MAT-N)` nel titolo.
+3. PR: push del branch e `gh pr create` con `Closes MAT-N` nel corpo. Il push e l'apertura della PR solo su mia conferma.
+4. Merge: quando ti dico che l'issue è chiusa, `gh pr merge --merge --delete-branch`. Il merge chiude l'issue su Linear.
+Non faccio merge diretto su `main`. Prima del merge controllo che il branch sia quello dell'issue e che i test passino.
 
 ### Commit
 Solo se lo chiedo. Stile dei miei repo: conventional commit su una riga, `tipo(scope): descrizione` in inglese,
