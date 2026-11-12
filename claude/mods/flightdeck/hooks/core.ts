@@ -381,8 +381,13 @@ export type JevRun = {
   effortProbabilities?: Record<string, number>
   effort?: string
   usage?: { input_tokens?: number; output_tokens?: number }
+  contextTokens?: number
+  /** Short labels jev-router wrote; the table below only covers runs saved before they existed. */
+  outcomeLabel?: string
+  whyLabel?: string
 }
 
+// Fallback for runs saved before jev-router wrote `outcomeLabel`.
 const JEV_OUTCOMES: Record<string, string> = {
   routed: 'instradato',
   'low-confidence': 'confidenza sotto la soglia: resta il modello della sessione',
@@ -402,7 +407,7 @@ export const normalizeJev = (raw: unknown): JevRun | null => {
 /** The outcome line, as /jev-last words it. */
 export const jevOutcome = (run: JevRun) => {
   const applied = run.outcome === 'routed' ? [run.model, run.effort && `effort ${run.effort}`].filter(Boolean).join(' · ') : ''
-  return `${JEV_OUTCOMES[run.outcome] ?? run.outcome}${applied ? ` su ${applied}` : ''}`
+  return `${run.outcomeLabel ?? JEV_OUTCOMES[run.outcome] ?? run.outcome}${applied ? ` su ${applied}` : ''}`
 }
 
 /** One row per option Jev weighed, likeliest first, with a bar of `cells`. */
@@ -465,10 +470,10 @@ export const jevState = (run: JevRun, sticky: JevSticky | null): JevState => {
   return { kind: 'applied', text: `effort ${run.effort ?? ''}`.trim() }
 }
 
-/** Rows the jev panel takes: borders, header, prompt, the state bar, then the model and effort rows when Jev weighed them, and an error line. */
+/** Rows the jev panel takes: borders, header, prompt, the state bar, then the why row, the model and effort rows when Jev weighed them, and an error line. */
 export const jevPanelRows = (run: JevRun | null) =>
   run
-    ? 5 + (run.probabilities ? 2 : 0) + (run.effortProbabilities ? 2 : 0) + (run.error ? 1 : 0)
+    ? 5 + (run.whyLabel ? 1 : 0) + (run.probabilities ? 2 : 0) + (run.effortProbabilities ? 2 : 0) + (run.error ? 1 : 0)
     : 0
 
 // ---------------------------------------------------------------- layout

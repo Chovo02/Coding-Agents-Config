@@ -120,6 +120,16 @@ test("jev-router's last run reads leniently and draws as /jev-last words it", ()
   expect(jevOutcome(normalizeJev({ at: 1, outcome: 'no-key' })!)).toContain('TYPESAFE_API_KEY')
 })
 
+test('a run shows the short labels jev-router wrote, and the why row takes one panel row', () => {
+  const run = normalizeJev({ at: 1, prompt: 'x', jevModel: 'j', outcome: 'low-confidence', latencyMs: 1, outcomeLabel: 'nessuna modifica', whyLabel: 'cache piena', contextTokens: 120_000 })!
+  expect(jevOutcome(run)).toBe('nessuna modifica')
+  expect(jevPanelRows(run)).toBe(5 + 1)
+  // Runs saved before the labels existed keep the table's wording and draw no why row.
+  const old = normalizeJev({ at: 1, prompt: 'x', jevModel: 'j', outcome: 'timeout', latencyMs: 1 })!
+  expect(jevOutcome(old)).toBe('timeout: resta il modello della sessione')
+  expect(jevPanelRows(old)).toBe(5)
+})
+
 test('a Jev decision reads as applied only once /model has switched the session to it', () => {
   const routed = normalizeJev({ at: 1, prompt: 'x', jevModel: 'j', outcome: 'routed', latencyMs: 1, choice: 'haiku', confidence: 0.9, model: 'claude-haiku-5-5', effort: 'low' })!
   expect(jevState(routed, null).kind).toBe('pending')

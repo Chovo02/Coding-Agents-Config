@@ -886,6 +886,13 @@ export const register: Register = (on, options) => {
             <Text dimColor>{`"${jv.prompt}"`}</Text>
           </Text>
           <Text color={barColor} bold wrap="truncate">{`${barLabel} · ${state.text}`}</Text>
+          {jv.whyLabel ? (
+            <Text wrap="truncate">
+              <Text dimColor>Why </Text>
+              <Text>{jv.whyLabel}</Text>
+              {jv.contextTokens ? <Text dimColor>{`   ctx ${Math.round(jv.contextTokens / 1000)}k`}</Text> : null}
+            </Text>
+          ) : null}
           {jv.probabilities ? (
             <Text wrap="truncate">
               <Text dimColor>Model </Text>
